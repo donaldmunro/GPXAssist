@@ -5,6 +5,7 @@ use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
     Aes256Gcm, Key, Nonce
 };
+use chrono::Duration;
 use hex;
 
 type EncryptedData = Vec<u8>;
@@ -47,4 +48,14 @@ pub fn decrypt(data: &[u8]) -> Result<String, Box<dyn Error>>
     
    let plaintext = cipher.decrypt(nonce, ciphertext).map_err(|e| format!("Decryption failed: {:?}", e))?;
    Ok(String::from_utf8(plaintext)?)
+}
+
+pub fn get_file_age(path: &PathBuf) -> Result<Duration, Box<dyn Error>> 
+//---------------------------------------------------------------------------------------
+{
+   let metadata = std::fs::metadata(path)?;
+   let modified_time = metadata.modified()?;
+   let duration_since_modified = modified_time.elapsed()?;
+   let chrono_duration = Duration::from_std(duration_since_modified)?;
+   Ok(chrono_duration)
 }

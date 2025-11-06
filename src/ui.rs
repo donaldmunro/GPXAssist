@@ -8,9 +8,10 @@ use eframe::{CreationContext, egui::{self, ColorImage, Context, Frame, Image, Te
 use walkers::{HttpTiles, Map, MapMemory, lon_lat, sources::OpenStreetMap};
 use include_dir::{include_dir, Dir};
 
-use crate::{STARTUP_PARAMS, components::{DirectionalArrow, ToastManager}, data::RiderData, data::RiderUsedData, gpx::{DistanceMethod, TrackPoint, find_closest_point, process_gpx}};
+use crate::{STARTUP_PARAMS, components::{DirectionalArrow, ToastManager}, data::RiderDataJSON, data::RiderData, gpx::{DistanceMethod, TrackPoint, find_closest_point, process_gpx}};
 use crate::SETTINGS;
 use crate::settings::Settings;
+use crate::ut;
 
 // Embed the entire assets directory at compile time
 static ASSETS_DIR: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/assets");
@@ -53,7 +54,7 @@ pub struct GPXAssistUI
    gradient_texture:       Option<TextureHandle>,
    is_simulating:          Arc<AtomicBool>,
    is_running:             Arc<AtomicBool>,
-   rider_data:             Arc<AtomicCell<RiderUsedData>>,
+   rider_data:             Arc<AtomicCell<RiderData>>,
    show_settings_dialog:   bool,
    show_api_key:           bool,
    temp_api_key:           String,
@@ -139,7 +140,7 @@ impl Default for GPXAssistUI
          gradient_texture: None,
          is_simulating: Arc::new(AtomicBool::new(false)),
          is_running: Arc::new(AtomicBool::new(false)),
-         rider_data: Arc::new(AtomicCell::new(RiderUsedData::default())),
+         rider_data: Arc::new(AtomicCell::new(RiderData::default())),
          show_settings_dialog: false,
          show_api_key: false,
          temp_api_key: String::new(),
@@ -194,30 +195,7 @@ impl GPXAssistUI
             eprintln!("Failed to load test off icon texture {e}.");
          }
       }
-      match load_svg_texture(&cc.egui_ctx, "run_on_icon", "start.svg", MENU_HEIGHT, MENU_HEIGHT)
-      {
-         | Ok(texture) =>
-         {
-            app.textures
-               .insert("run-on".to_string(), (texture, [MENU_HEIGHT as f32, MENU_HEIGHT as f32]));
-         }
-         | Err(e) =>
-         {
-            eprintln!("Failed to load start run icon texture {e}.");
-         }
-      }
-      match load_svg_texture(&cc.egui_ctx, "run_off_icon", "stop_circle.svg", MENU_HEIGHT, MENU_HEIGHT)
-      {
-         | Ok(texture) =>
-         {
-            app.textures
-               .insert("run-off".to_string(), (texture, [MENU_HEIGHT as f32, MENU_HEIGHT as f32]));
-         }
-         | Err(e) =>
-         {
-            eprintln!("Failed to load stop run icon texture {e}.");
-         }
-      }
+
       match load_svg_texture(&cc.egui_ctx, "map_on_icon", "globe-on.svg", MENU_HEIGHT, MENU_HEIGHT)
       {
          | Ok(texture) =>
@@ -415,12 +393,12 @@ impl GPXAssistUI
                      {
                         | Ok(_) =>
                         {
-                           self.toast_manager.success("Settings saved successfully");
+                           self.toast_manager.success("Settings saved successfully", Some(Duration::from_secs(3)));
                            self.encrypted_api_key = Some(self.temp_api_key.clone());
                         }
                         | Err(e) =>
                         {
-                           self.toast_manager.error(&format!("Failed to save API key: {}", e));
+                           self.toast_manager.error(&format!("Failed to save API key: {}", e), None);
                         }
                      }
                   }
@@ -437,7 +415,7 @@ impl GPXAssistUI
                      | Ok(_) => (),
                      | Err(e) =>
                      {
-                        self.toast_manager.error(&format!("Failed to write settings: {}", e));
+                        self.toast_manager.error(&format!("Failed to write settings: {}", e), None);
                      }
                   }
 
@@ -464,7 +442,7 @@ impl GPXAssistUI
 
    #[allow(clippy::too_many_arguments)]
    fn update_distance_thread(ctx: Context, updated_distance: Arc<AtomicCell<f64>>,  track: Arc<Vec<TrackPoint>>,
-     requested_delta: Arc<AtomicCell<f64>>, rider_data: Arc<AtomicCell<RiderUsedData>>, total_distance: f64,
+     requested_delta: Arc<AtomicCell<f64>>, rider_data: Arc<AtomicCell<RiderData>>, total_distance: f64,
      is_running: Arc<AtomicBool> )
    //--------------------------------------------------------------------------------------------------------------------
    {
@@ -472,6 +450,11 @@ impl GPXAssistUI
       let mut distance: f64 = 0.0;
       while distance < total_distance
       {
+         if !is_running.load(Ordering::Relaxed)
+         {
+            std::thread::sleep(Duration::from_secs(1));
+            continue;
+         }
          let mut rider = match read_rider_data(3, Duration::from_millis(300))
          {
             | Some(r) => r,
@@ -483,7 +466,7 @@ impl GPXAssistUI
          };
 
          distance = rider.distance_meters();
-         println!("Read distance: {:.2} meters ({:.2}km)", distance, distance / 1000.0);
+         // println!("Read distance: {:.2} meters ({:.2}km)", distance, distance / 1000.0);
          if distance > last_distance
          {
             let distance_delta = requested_delta.load();
@@ -497,17 +480,14 @@ impl GPXAssistUI
                   rider.longitude = position.point.lon;
                   rider.altitude = position.altitude;
                }
-               let rider_copy = RiderUsedData::from(rider);
+               let rider_copy = RiderData::from(rider);
                rider_data.store(rider_copy);
                ctx.request_repaint();
                println!("Sent distance: {:.2} meters ({:.2}km)", distance, distance / 1000.0);
             }
          }
 
-         if !is_running.load(Ordering::Relaxed)
-         {
-            break;
-         }
+         // if !is_running.load(Ordering::Relaxed) { break; }
          std::thread::sleep(Duration::from_secs(1));
       }
    }
@@ -515,8 +495,8 @@ impl GPXAssistUI
    /// Simulates movement along a GPX track at 45km/h
    #[allow(clippy::too_many_arguments)]
    fn simulate_movement_thread( ctx: Context, updated_distance: Arc<AtomicCell<f64>>, track: Arc<Vec<TrackPoint>>,
-      requested_delta: Arc<AtomicCell<f64>>, simulated_speed: Arc<AtomicCell<f64>>, rider_data: Arc<AtomicCell<RiderUsedData>>,
-      total_distance: f64, is_sim_running: Arc<AtomicBool> )
+      requested_delta: Arc<AtomicCell<f64>>, simulated_speed: Arc<AtomicCell<f64>>, rider_data: Arc<AtomicCell<RiderData>>,
+      total_distance: f64, is_sim_running: Arc<AtomicBool>, is_running: Arc<AtomicBool> )
    //-------------------------------------------------------------------------------------------------
    {
       let mut distance: f64 = 0.0;
@@ -527,10 +507,14 @@ impl GPXAssistUI
       let start: DateTime<Local> = Local::now();
       while distance < total_distance
       {
+         if is_running.load(Ordering::Relaxed)
+         {
+            break;
+         }
          if (distance - last_distance) >= distance_delta
          {
             updated_distance.store(distance);
-            let mut rider = RiderUsedData { distance: distance as i32, ..Default::default() }; //::default();
+            let mut rider = RiderData { distance: distance as i32, ..Default::default() }; //::default();
             // rider.distance = distance as i32;
             if let (Some(position), _) = find_closest_point(&track, distance)
             {
@@ -558,6 +542,42 @@ impl GPXAssistUI
          distance_delta = requested_delta.load();
       }
       is_sim_running.store(false, Ordering::Relaxed);
+      is_running.store(true, Ordering::Relaxed);
+   }
+
+   fn check_update_file(&mut self)
+   //----------------------------------
+   {
+      let broadcast_file = get_broadcast_file();
+      let is_exists = broadcast_file.is_some() && broadcast_file.as_ref().unwrap().is_file();
+      let mut age: chrono::Duration = chrono::Duration::zero();
+      if is_exists
+      {
+         age = match ut::get_file_age(broadcast_file.as_ref().unwrap())
+         {
+            | Ok(d) => d,
+            | Err(e) =>
+            {
+               eprintln!("Error getting broadcast file age: {}", e);
+               return;
+            }
+         };
+      }
+      let is_aged = age.num_minutes() > 1;
+      if ! is_exists || is_aged
+      {
+         let age_msg = if is_aged
+         {
+            " or the broadcast file has not been updated recently "
+         }
+         else
+         {
+            ""
+         };
+         let errmsg = format!("Could not find a valid TrainingPeaks Virtual broadcast file{}at {:#?}", age_msg, broadcast_file);
+         self.toast_manager.warning(errmsg, Some(Duration::from_secs(10)));
+         return;
+      }
    }
 }
 
@@ -589,6 +609,7 @@ impl eframe::App for GPXAssistUI
                   self.previous_position = self.current_position;
                   self.gpx_track = Arc::new(trackdata);
                   self.current_mode = ViewMode::Map;
+                  self.is_simulating.store(false, Ordering::Relaxed);
                   match PathBuf::from(&filepath).file_name()
                   {
                      | Some(name) =>
@@ -598,10 +619,26 @@ impl eframe::App for GPXAssistUI
                      },
                      | None => ()
                   }
+                  self.is_running.store(true, Ordering::Relaxed);
+                  let updated_distance = self.updated_distance.clone();
+                  let requested_delta = self.requested_delta.clone();
+                  let rider_data = self.rider_data.clone();
+                  let total_distance = self.total_distance;
+                  let is_running = self.is_running.clone();
+                  let track = self.gpx_track.clone();
+                  let ctxx = ctx.clone();
+                  self.is_first_map_frame = false;
+                  self.is_first_street_frame = false;
+                  self.is_first_gradient_frame = false;
+                  self.check_update_file();
+                  std::thread::spawn(move ||
+                  {
+                     Self::update_distance_thread(ctxx, updated_distance, track, requested_delta, rider_data, total_distance, is_running);
+                  });
                }
                else
                {
-                  self.toast_manager.error("The selected GPX file contains no track points or could not be processed.");
+                  self.toast_manager.error("The selected GPX file contains no track points or could not be processed.", None);
                }
             }
 
@@ -632,40 +669,6 @@ impl eframe::App for GPXAssistUI
 
                if self.gpx_file.is_some() && self.total_distance > 0.0
                {
-                  if self.is_running.load(Ordering::Relaxed)
-                  {
-                     if let Some((texture, size)) = self.textures.get("run-off")
-                        && ui.add(egui::Button::image(egui::Image::new(texture)
-                           .alt_text("Stop")
-                           .bg_fill(egui::Color32::from_rgb(232, 227, 209))
-                           .fit_to_exact_size((*size).into()))).on_hover_text("Stop processing distance updates from TPV.")
-                     .clicked()
-                     {  // Stop Simulation button
-                        self.is_running.store(false, Ordering::Relaxed);
-                     }
-                  }
-                  else if  let Some((texture, size)) = self.textures.get("run-on")
-                           && ui.add(egui::Button::image(egui::Image::new(texture)
-                                .alt_text("Start")
-                                .bg_fill(egui::Color32::from_rgb(232, 227, 209))
-                                .fit_to_exact_size((*size).into()))).on_hover_text("Start processing distance updates from TPV.")
-                  .clicked()
-                  {
-                     self.is_simulating.store(false, Ordering::Relaxed);
-                     self.is_running.store(true, Ordering::Relaxed);
-                     let updated_distance = self.updated_distance.clone();
-                     let requested_delta = self.requested_delta.clone();
-                     let rider_data = self.rider_data.clone();
-                     let total_distance = self.total_distance;
-                     let is_running = self.is_running.clone();
-                     let track = self.gpx_track.clone();
-                     let ctxx = ctx.clone();
-                     std::thread::spawn(move ||
-                     {
-                        Self::update_distance_thread(ctxx, updated_distance, track, requested_delta, rider_data, total_distance, is_running);
-                     });
-                  }
-
                   let mut dist: f64 = self.requested_delta.load();
                   ui.label(egui::RichText::new("Delta:").color(egui::Color32::YELLOW).strong());
                   let distance_response = ui.add_sized(
@@ -737,9 +740,10 @@ impl eframe::App for GPXAssistUI
                      .clicked()
                      {  // Stop Simulation button
                         self.is_simulating.store(false, Ordering::Relaxed);
+                        self.is_running.store(true, Ordering::Relaxed);
                      }
                   }
-                  else if  ! self.is_simulating.load(Ordering::Relaxed) && ! self.is_running.load(Ordering::Relaxed)
+                  else if  ! self.is_simulating.load(Ordering::Relaxed)
                            && let Some((texture, size)) = self.textures.get("test-on")
                            && self.total_distance > 0.0
                            && ui.add(egui::Button::image(egui::Image::new(texture)
@@ -750,17 +754,19 @@ impl eframe::App for GPXAssistUI
                   .clicked()
                   {
                      self.is_simulating.store(true, Ordering::Relaxed);
+                     self.is_running.store(false, Ordering::Relaxed);
                      let updated_distance = self.updated_distance.clone();
                      let rider_data = self.rider_data.clone();
                      let requested_delta = self.requested_delta.clone();
                      let simulated_speed = self.simulated_speed.clone();
                      let total_distance = self.total_distance;
+                     let is_running = self.is_running.clone();
                      let is_sim_running = self.is_simulating.clone();
                      let track = self.gpx_track.clone();
                      let ctxx = ctx.clone();
                      std::thread::spawn(move ||
                      {
-                        Self::simulate_movement_thread(ctxx, updated_distance, track, requested_delta, simulated_speed, rider_data, total_distance, is_sim_running);
+                        Self::simulate_movement_thread(ctxx, updated_distance, track, requested_delta, simulated_speed, rider_data, total_distance, is_sim_running, is_running);
                      });
                   }
                }
@@ -784,9 +790,19 @@ impl eframe::App for GPXAssistUI
                   ui.add(image);
                });
             }
-            else if (broadcast_file.is_none() || !broadcast_file.as_ref().unwrap().is_file()) && self.is_running.load(Ordering::Relaxed)
+            else if ! self.is_simulating.load(Ordering::Relaxed) && ( (broadcast_file.is_none() || !broadcast_file.as_ref().unwrap().is_file()) )
             {
-               display_invalid_broadcast_directory(ui);
+               let age = match ut::get_file_age(broadcast_file.as_ref().unwrap())
+               {
+                  | Ok(d) => d.num_minutes(),
+                  | Err(_e) =>
+                  {
+                     // eprintln!("Error getting broadcast file age: {}", e);
+                     -1 as i64
+                  }
+               };
+               let is_aged = age >= 1;
+               display_invalid_broadcast_directory(ui, is_aged);
             }
             else
             {
@@ -1027,7 +1043,7 @@ fn load_embedded_png(asset_name: &str) -> Result<ColorImage, String>
    Ok(ColorImage::from_rgba_unmultiplied(size, &pixels))
 }
 
-fn display_invalid_broadcast_directory(ui: &mut egui::Ui)
+fn display_invalid_broadcast_directory(ui: &mut egui::Ui, is_aged: bool)
 //----------------------------------------------------
 {
    let broadcast_file = match get_broadcast_file()
@@ -1035,7 +1051,15 @@ fn display_invalid_broadcast_directory(ui: &mut egui::Ui)
       | Some(dir) => dir,
       | None => PathBuf::from(""),
    };
-   let errmsg = format!("Could not find a valid TrainingPeaks Virtual broadcast file at {:#?}", broadcast_file);
+   let age_msg = if is_aged
+   {
+      " or the broadcast file has not been updated recently "
+   }
+   else
+   {
+      ""
+   };
+   let errmsg = format!("Could not find a valid TrainingPeaks Virtual broadcast file{}at {:#?}", age_msg, broadcast_file);
 
    // Load embedded PNG images - unwrap is safe since assets are embedded at compile time
    let color_img_1 = load_embedded_png("menu-1.png").expect("menu-1.png should be embedded");
@@ -1640,7 +1664,7 @@ fn get_broadcast_file() -> Option<PathBuf>
 
 /// Returns the distance in meters from the broadcast focus.json file.
 /// -1 indicates an error parsing the file after parse_retries attempts.
-fn read_rider_data(parse_retries: i64, retry_duration: Duration) -> Option<RiderData>
+fn read_rider_data(parse_retries: i64, retry_duration: Duration) -> Option<RiderDataJSON>
 //--------------------------------------
 {
    let broadcast_file = match get_broadcast_file()
@@ -1677,7 +1701,8 @@ fn read_rider_data(parse_retries: i64, retry_duration: Duration) -> Option<Rider
       };
 
       // The data as read from disk has 3 binary characters at the start which cause JSON parsing to fail.
-      //let rider_json_string: String = rider_json_data .chars().filter(|c| c.is_ascii()).collect();
+      // Turns out its a UTF-8 BOM (Byte Order Mark) (https://en.wikipedia.org/wiki/Byte_order_mark) 
+      // which Rusts standard library does not strip automatically.
       let mut pch = rider_json_data.find('[');
       if pch.is_none()
       {
@@ -1695,7 +1720,8 @@ fn read_rider_data(parse_retries: i64, retry_duration: Duration) -> Option<Rider
          rider_json_data
       };
 
-      // Handle (invalid) JSON array format [{"name":"xxx"....}]
+      // Handle (invalid) unnamed JSON array [{"name":"xxx"....}] (should be for eg { "riders": [ {"name":"xxx"....}] }
+      // (must have come from some Microsoft JSON serializer).
       // let rider_json = if rider_json_data.starts_with(r#"["#) && rider_json_data.ends_with(r#"]"#)
       // {
       //    rider_json_data[1..rider_json_data.len()-1].to_string() // remove [ and ]
@@ -1710,7 +1736,7 @@ fn read_rider_data(parse_retries: i64, retry_duration: Duration) -> Option<Rider
 
       // println!("Process rider JSON: {}", rider_json);
 
-      if let Ok(rider_data) = RiderData::from_json(&rider_json)
+      if let Ok(rider_data) = RiderDataJSON::from_json(&rider_json)
       {
          return Some(rider_data);
       }

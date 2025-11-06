@@ -79,6 +79,7 @@ impl Settings
             }
          }
       };
+      
       if ! settings_path.exists()
       {
          settings_path = match self.write_default_settings()

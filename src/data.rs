@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RiderData 
+pub struct RiderDataJSON 
 {
     pub name: String,
     pub country: String,
@@ -60,7 +60,7 @@ pub struct RiderData
 }
 
 
-impl Default for RiderData 
+impl Default for RiderDataJSON 
 {
     fn default() -> Self 
     {
@@ -105,7 +105,7 @@ impl Default for RiderData
     }
 }
 
-impl RiderData 
+impl RiderDataJSON 
 {
     pub fn from_json(json_str: &str) -> Result<Self, String> 
     {
@@ -147,10 +147,11 @@ impl RiderData
 }
 
 
-pub fn parse_rider_json(json_str: &str) -> Result<RiderData, String> { RiderData::from_json(json_str) }
+pub fn parse_rider_json(json_str: &str) -> Result<RiderDataJSON, String> { RiderDataJSON::from_json(json_str) }
 
+/// No Strings makes Copy possible for use in AtomicCell (and we're only dealing with one rider anyway so names needed).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct RiderUsedData
+pub struct RiderData
 {    
     pub distance: i32,
     pub wind_angle: i32,
@@ -162,9 +163,9 @@ pub struct RiderUsedData
     pub altitude: f64
 }
 
-impl From<RiderData> for RiderUsedData
+impl From<RiderDataJSON> for RiderData
 {
-    fn from(rider: RiderData) -> Self
+    fn from(rider: RiderDataJSON) -> Self
     {
         Self
         {
@@ -180,9 +181,9 @@ impl From<RiderData> for RiderUsedData
     }
 }
 
-impl From<&RiderData> for RiderUsedData
+impl From<&RiderDataJSON> for RiderData
 {
-    fn from(rider: &RiderData) -> Self
+    fn from(rider: &RiderDataJSON) -> Self
     {
         Self
         {
@@ -198,7 +199,7 @@ impl From<&RiderData> for RiderUsedData
     }
 }
 
-impl Default for RiderUsedData
+impl Default for RiderData
 {
     fn default() -> Self
     {

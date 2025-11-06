@@ -176,7 +176,7 @@ pub struct Toast
    message: String,
    level: ToastLevel,
    created_at: Instant,
-   duration: Duration,
+   duration: Option<Duration>, // None = indefinite (requires dismissal)
 }
 
 impl Toast
@@ -187,26 +187,45 @@ impl Toast
          message: message.into(),
          level,
          created_at: Instant::now(),
-         duration: Duration::from_secs(4),
+         duration: Some(Duration::from_secs(4)),
       }
    }
 
    pub fn with_duration(mut self, duration: Duration) -> Self
    {
-      self.duration = duration;
+      self.duration = Some(duration);
+      self
+   }
+
+   pub fn indefinite(mut self) -> Self
+   {
+      self.duration = None;
       self
    }
 
    pub fn is_expired(&self) -> bool
    {
-      self.created_at.elapsed() > self.duration
+      match self.duration {
+         Some(duration) => self.created_at.elapsed() > duration,
+         None => false, // Indefinite toasts never expire
+      }
    }
 
    pub fn remaining_time(&self) -> f32
    {
-      let elapsed = self.created_at.elapsed().as_secs_f32();
-      let total = self.duration.as_secs_f32();
-      ((total - elapsed) / total).max(0.0)
+      match self.duration {
+         Some(duration) => {
+            let elapsed = self.created_at.elapsed().as_secs_f32();
+            let total = duration.as_secs_f32();
+            ((total - elapsed) / total).max(0.0)
+         }
+         None => 1.0, // Always full for indefinite toasts
+      }
+   }
+
+   pub fn is_indefinite(&self) -> bool
+   {
+      self.duration.is_none()
    }
 }
 
@@ -235,24 +254,44 @@ impl ToastManager
       self.toasts.push(toast);
    }
 
-   pub fn info(&mut self, message: impl Into<String>)
+   pub fn info(&mut self, message: impl Into<String>, duration: Option<Duration>)
    {
-      self.add(Toast::new(message, ToastLevel::Info));
+      let toast = Toast::new(message, ToastLevel::Info);
+      let toast = match duration {
+         Some(d) => toast.with_duration(d),
+         None => toast.indefinite(),
+      };
+      self.add(toast);
    }
 
-   pub fn warning(&mut self, message: impl Into<String>)
+   pub fn warning(&mut self, message: impl Into<String>, duration: Option<Duration>)
    {
-      self.add(Toast::new(message, ToastLevel::Warning));
+      let toast = Toast::new(message, ToastLevel::Warning);
+      let toast = match duration {
+         Some(d) => toast.with_duration(d),
+         None => toast.indefinite(),
+      };
+      self.add(toast);
    }
 
-   pub fn error(&mut self, message: impl Into<String>)
+   pub fn error(&mut self, message: impl Into<String>, duration: Option<Duration>)
    {
-      self.add(Toast::new(message, ToastLevel::Error));
+      let toast = Toast::new(message, ToastLevel::Error);
+      let toast = match duration {
+         Some(d) => toast.with_duration(d),
+         None => toast.indefinite(),
+      };
+      self.add(toast);
    }
 
-   pub fn success(&mut self, message: impl Into<String>)
+   pub fn success(&mut self, message: impl Into<String>, duration: Option<Duration>)
    {
-      self.add(Toast::new(message, ToastLevel::Success));
+      let toast = Toast::new(message, ToastLevel::Success);
+      let toast = match duration {
+         Some(d) => toast.with_duration(d),
+         None => toast.indefinite(),
+      };
+      self.add(toast);
    }
 
    pub fn show(&mut self, ctx: &egui::Context)
@@ -272,6 +311,7 @@ impl ToastManager
 
       // Position toasts in the top-right corner
       let mut y_offset = margin;
+      let mut toasts_to_remove = Vec::new();
 
       for (index, toast) in self.toasts.iter().enumerate()
       {
@@ -314,9 +354,22 @@ impl ToastManager
                                  .size(14.0),
                            );
                         });
+
+                        // Add dismiss button for all toasts
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui|
+                        {
+                           if ui.button(egui::RichText::new("✖")
+                              .color(egui::Color32::WHITE)
+                              .size(16.0))
+                              .on_hover_text("Click to dismiss")
+                              .clicked()
+                           {
+                              toasts_to_remove.push(index);
+                           }
+                        });
                      });
 
-                     // Progress bar showing remaining time
+                     // Progress bar showing remaining time (or full bar for indefinite)
                      let remaining = toast.remaining_time();
                      ui.add_space(4.0);
                      let progress_bar_height = 3.0;
@@ -325,18 +378,42 @@ impl ToastManager
                         egui::Sense::hover(),
                      );
 
+                     let bar_color = if toast.is_indefinite() {
+                        toast.level.color() // Full brightness for indefinite
+                     } else {
+                        toast.level.color().linear_multiply(0.8)
+                     };
+
                      ui.painter().rect_filled(
                         egui::Rect::from_min_size(
                            rect.min,
                            egui::vec2((toast_width - 24.0) * remaining, progress_bar_height),
                         ),
                         0.0,
-                        toast.level.color().linear_multiply(0.8),
+                        bar_color,
                      );
+
+                     // Show "Click X to dismiss" hint for indefinite toasts
+                     if toast.is_indefinite()
+                     {
+                        ui.add_space(2.0);
+                        ui.label(
+                           egui::RichText::new("Click ✖ to dismiss")
+                              .color(egui::Color32::from_white_alpha(180))
+                              .size(11.0)
+                              .italics(),
+                        );
+                     }
                   });
             });
 
-         y_offset += 80.0 + toast_spacing;
+         y_offset += 100.0 + toast_spacing;
+      }
+
+      // Remove dismissed toasts
+      for &index in toasts_to_remove.iter().rev()
+      {
+         self.toasts.remove(index);
       }
 
       // Request repaint to animate the progress bar
