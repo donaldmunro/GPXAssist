@@ -53,3 +53,17 @@ the .gpx file of the ride you want to do. This is necessary as currently the dat
     The current display is selected by clicking on one of "Map", "Street View" or "Gradient" labels.
 
 5. There is also a test/simulate mode that allows you to load a .gpx file and simulate a ride along it at a specified speed without needing to connect to TrainingPeaks Virtual. To use this mode, open a .gpx file, set the speed in km/h (can be changed during the simulation) and  click the "Start Simulate" <img src="/img/sim.png" alt="Broadcast file" width="40">  button. Click the button (which displays as selected or darker gray while running) again to stop the simulation.
+
+# Settings
+
+The gradient view can be customized as follows in the settings menu (gear icon top left):
+* The gradient length (distance ahead) to display (in meters)
+* The offset (position) into the gradient where the rider is located
+* The gradient percentage considered flat (e.g. 0.5 means anything between -0.5% and +0.5% is coloured as green i.e flat)
+* The uphill gradient percentage considered extreme. Anything above this value is coloured black.
+
+<img src="/img/settings.png" alt="Broadcast file" width="618">
+
+### Google Street View API Key
+
+In order to use Google Street View (static mode which is used by GPXAssist), you need to obtain a Google API key. See [Google Map APIs](https://console.cloud.google.com/google/maps-apis/) to to obtain an API key. The free tier allows 10000 views per month and then \$7.00 up to the next 100000 views (see [StreetView static pricing](https://developers.google.com/maps/billing-and-pricing/pricing#map-loads-pricing)) (you may also qualify for a $300 credit for trying out Google Cloud). Enter the API key in the "Settings" dialog (gear icon top left) in the "Google API Key" field.
