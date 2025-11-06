@@ -2,7 +2,8 @@
 
 ## Releases
 
-Releases: TBD
+Releases: 
+- [v0.2 Initial Release](https://github.com/donaldmunro/GPXAssist/releases/tag/v0.2)
 
 Note: I do not currently own an Apple device or Apple developer account, so there are no MacOS builds currently available (see the Usage section below for building it). 
 (Maybe I'll get an Apple Mini if the M4 prices drop due to the M5 coming out).
