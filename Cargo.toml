@@ -1,0 +1,45 @@
+[package]
+name = "GPXAssist"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "GPXAssist"
+path = "src/main.rs"
+
+[dependencies]
+parking_lot = "0.12.3"
+gpx = "0.10.0"
+clap = { version = "4.5.50", features = ["derive"] }
+rand_core = "0.9.3"
+# egui = "0.33.0"
+eframe = { version = "0.33.0", features = [
+    "default",
+    "__screenshot",
+] }
+env_logger = "0.11.8"
+walkers = "0.48.0"
+usvg   = "0.45.1"          # SVG parser
+resvg  = "0.45.1"          # high‑level renderer (uses usvg + tiny-skia)
+tiny-skia = "0.11"
+image = { version = "0.25.8", default-features = false, features = ["jpeg", "png"] }
+egui_extras = { version = "0.33.0", features = ["image", "svg"] }
+egui_plot = "0.34.0"
+fontdue = "0.9.2"
+rfd = "0.15.4"
+futures = "0.3.28"
+chrono = "0.4.42"
+crossbeam = "0.8"
+serde = { version = "1.0.228", features = ["derive", "rc"] }
+serde_json = "1.0.145"
+lazy_static = "1.5.0"
+reqwest = { version = "0.12", features = ["blocking"] }
+tempfile = "3.23.0"
+whoami = "1.6.1"
+dirs = "6.0.0"
+aes-gcm = "0.10.3"
+hex = "0.4.3"
+include_dir = "0.7"
+
+[features]
+vector_tiles = ["walkers/vector_tiles"]
