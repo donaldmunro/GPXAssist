@@ -5,8 +5,10 @@
 Releases: 
 - [v0.2 Initial Release](https://github.com/donaldmunro/GPXAssist/releases/tag/v0.2)
 
-Note: I do not currently own an Apple device or Apple developer account, so there are no MacOS builds currently available (see the Usage section below for building it). 
-(Maybe I'll get an Apple Mini if the M4 prices drop due to the M5 coming out).
+~~Note: I do not currently own an Apple device or Apple developer account, so there are no MacOS builds currently available (see the Usage section below for building it). 
+(Maybe I'll get an Apple Mini if the M4 prices drop due to the M5 coming out).~~
+
+Thanks to James Terrell we now have a [MacOS build](https://github.com/charlotteip/GPXAssist/blob/jterrell/macos-build/target/release/GPXAssist).
 
 Currently GPXAssist is only available for desktop, possibly a mobile version will be made in the future (or a WASM version that can run as a local server).
 
