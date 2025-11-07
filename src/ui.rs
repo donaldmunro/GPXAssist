@@ -1639,13 +1639,27 @@ fn fetch_image_from_url(url: &str) -> Result<ColorImage, String>
 fn get_broadcast_directory() -> Option<PathBuf>
 //---------------------------------------------
 {
-   match dirs::document_dir()
-   {
-      | Some(dir) =>
+   if cfg!(target_os = "macos")
+   {  // ~/TPVirtual/Broadcast/focus.json 
+      match dirs::home_dir()
       {
-         Some(dir.join("TPVirtual").join("Broadcast").clone())
-      },
-      | None => None,
+         | Some(dir) =>
+         {
+            Some(dir.join("TPVirtual").join("Broadcast").clone())
+         },
+         | None => None,
+      }
+   }
+   else
+   {
+      match dirs::document_dir()
+      {
+         | Some(dir) =>
+         {
+            Some(dir.join("TPVirtual").join("Broadcast").clone())
+         },
+         | None => None,
+      }
    }
 }
 
