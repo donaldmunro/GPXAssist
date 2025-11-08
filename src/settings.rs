@@ -1,10 +1,15 @@
 //#![feature(os_str_display)]
-use std::fs::File;
+use std::{fs::File, sync::Arc};
 use std::io::Write;
 use std::env;
 use std::path::PathBuf;
 
-use crate::{ui, ut};
+use std::time::Duration;
+use eframe::egui::{self, Color32, Context, Vec2};
+
+use crate::components::ToastManager;
+use crate::ui::get_broadcast_directory_or_default;
+use crate::{SETTINGS, ui::{self, GPXAssistUI}, ut};
 
 const PROGRAM: &str = "GPXAssist";
 
@@ -21,6 +26,14 @@ pub struct Settings
    pub(crate) flat_gradient_percentage: f64,
    pub(crate) extreme_gradient_percentage: f64,
    streetview_api_key: String,
+
+   #[serde(skip)] show_api_key:           bool,
+   #[serde(skip)] temp_api_key:           String,
+   #[serde(skip)] temp_broadcast_dir:     PathBuf,
+   #[serde(skip)] temp_gradient_length:   f64,
+   #[serde(skip)] temp_gradient_position: f64,
+   #[serde(skip)] temp_flat_gradient:     f64,
+   #[serde(skip)] temp_extreme_gradient:  f64
 }
 
 impl Default for Settings
@@ -42,6 +55,14 @@ impl Default for Settings
          flat_gradient_percentage: 0.5,
          extreme_gradient_percentage: 16.0,
          streetview_api_key: String::new(),
+
+         show_api_key: false,
+         temp_api_key: String::new(),
+         temp_broadcast_dir: PathBuf::new(),
+         temp_gradient_length: 3000.0,
+         temp_gradient_position: 500.0,
+         temp_flat_gradient: 0.5,
+         temp_extreme_gradient: 16.0
       }
    }
 }
@@ -155,6 +176,36 @@ impl Settings
                // self.toast_manager.error(errmsg);
                Err(errmsg)
             }
+         }
+      }
+   }
+
+   fn set_streetview_api_key_from_tmp(&mut self) -> Result<(), String>
+   //----------------------------------------------------------------
+   {
+      match ut::encrypt(&self.temp_api_key)
+      {
+         | Ok(encrypted_data) =>
+         {
+            self.streetview_api_key = hex::encode(encrypted_data);
+            match self.write_settings()
+            {
+               | Ok(_) => (),
+               | Err(e) =>
+               {
+                  let errmsg = format!("Failed to write settings file: {}", e);
+                  eprintln!("{errmsg}");
+                  return Err(errmsg);
+               }
+            }
+            Ok(())
+         }
+         | Err(e) =>
+         {
+            let errmsg = format!("Failed to encrypt Street View API key: {}", e);
+            eprintln!("{errmsg}");
+            // self.toast_manager.error(errmsg);
+            Err(errmsg)
          }
       }
    }
@@ -367,6 +418,273 @@ impl Settings
          }
       };
       settings.clone()
+   }
+
+   pub fn open_settings_dialog(&mut self, assist: &mut GPXAssistUI)
+   //---------------------------------
+   {
+      // let settings = SETTINGS.get_or_init(|| Arc::new(parking_lot::Mutex::new(Settings::new().get_settings_or_default())));
+      // let settings_lock = settings.lock();
+
+      // if let Ok(api_key) = settings_lock.get_streetview_api_key()
+      // {
+      //    settings_lock.temp_api_key = api_key;
+      // }
+      // else
+      // {
+      //    settings_lock.temp_api_key.clear();
+      // }
+      self.temp_api_key = match self.get_streetview_api_key()
+      {
+         Ok(k) => k,
+         Err(_) => String::new(),
+      };
+
+      self.temp_broadcast_dir = self.broadcast_directory.clone();
+      self.temp_gradient_length = self.gradient_length;
+      self.temp_gradient_position = self.gradient_position;
+      self.temp_flat_gradient = self.flat_gradient_percentage;
+      self.temp_extreme_gradient = self.extreme_gradient_percentage;
+      self.show_api_key = false;
+
+      // Show the dialog
+      assist.show_settings_dialog = true;
+   }
+
+   pub fn show_settings_dialog(&mut self, assist: &mut GPXAssistUI, ctx: &Context)
+   //------------------------------------------------
+   {
+      if !assist.show_settings_dialog
+      {
+         return;
+      }
+
+      let mut status_message: String = String::default();
+      let mut status_color = Color32::GREEN;
+      egui::Window::new("Settings")
+         .collapsible(false)
+         .resizable(false)
+         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+         .show(ctx, |ui| {
+            ui.set_min_width(500.0);
+
+            egui::Grid::new("settings_grid")
+               .num_columns(2)
+               .spacing([10.0, 10.0])
+               .striped(true)
+               .show(ui, |ui|
+               {
+                  ui.label("Street View API Key:");
+                  ui.horizontal(|ui|
+                  {
+                     ui.add_sized(Vec2::new(400.0, 30.0),
+                         egui::TextEdit::singleline(&mut self.temp_api_key)
+                        .hint_text("Enter your Google API key")
+                        .password(!self.show_api_key)
+                        // .desired_width(300.0)
+                     ).on_hover_text("Enter your Google API key");
+
+                     // Toggle button to show/hide API key
+                     let button_text = if self.show_api_key { "  🙈  " } else { "  👁  " };
+                     if ui.button(button_text).clicked() {
+                        self.show_api_key = !self.show_api_key;
+                     }
+                  });
+                  ui.end_row();
+
+                  let mut dir_color = Color32::GREEN;
+                  let mut dir =
+                  if self.temp_broadcast_dir.display().to_string().trim().is_empty()
+                  {
+                     dir_color = Color32::YELLOW;
+                     status_color = Color32::YELLOW;
+                     status_message = "WARN: Broadcast directory is not set.".to_string();
+                     // self.temp_broadcast_dir.clone()
+                     get_broadcast_directory_or_default()
+                  }
+                  else if ! self.temp_broadcast_dir.exists()
+                  {
+                     dir_color = Color32::RED;
+                     status_color = Color32::RED;
+                     status_message = format!("Directory {:?} does not exist.", self.temp_broadcast_dir);
+                     self.temp_broadcast_dir.clone()
+                     // get_broadcast_directory_or_default()
+                  }
+                  else
+                  {
+                     if ! self.temp_broadcast_dir.is_dir()
+                     {
+                        dir_color = Color32::RED;
+                        status_color = Color32::RED;
+                        status_message = format!("Directory {:?} is not a directory.", self.temp_broadcast_dir);
+                        // PathBuf::new()
+                        self.temp_broadcast_dir.clone()
+                     }
+                     else
+                     {
+                        let file_path = self.temp_broadcast_dir.join("focus.json");
+                        if ! file_path.exists() || ! file_path.is_file()
+                        {
+                           dir_color = Color32::YELLOW;
+                           status_color = Color32::YELLOW;
+                           status_message = format!("WARN: Broadcast file {:?} not found.", file_path);
+                           // PathBuf::new()
+                        }
+                        else
+                        {
+                           status_message = "".to_string();
+                           // self.temp_broadcast_dir.clone()
+                        }
+                        self.temp_broadcast_dir.clone()
+                     }
+                  };
+                  let mut dir_string = dir.display().to_string();
+
+                  ui.label("Broadcast Dir:");
+                  ui.horizontal(|ui|
+                  {
+                     let text_color = if dir_color == Color32::RED || dir_color == Color32::YELLOW
+                     {
+                        Color32::BLACK
+                     }
+                     else
+                     {
+                        Color32::WHITE
+                     };
+                     ui.style_mut().visuals.override_text_color = Some(text_color);
+                     ui.add_sized( egui::Vec2::new(400.0, 30.0), egui::TextEdit::singleline(&mut dir_string).background_color(dir_color));
+                     if ui.button("  📂  ").clicked()
+                     {
+                        // let dialog_future = rfd::AsyncFileDialog::new().set_directory(home).pick_file();
+                        if let Some(selected_dir) = rfd::FileDialog::new().set_directory(&dir).pick_folder()
+                        {
+                           self.temp_broadcast_dir = selected_dir;
+                        }
+                     }
+                  });
+                  ui.end_row();
+
+                  // if ! status_message.is_empty()
+                  // {
+                  //    ui.horizontal(|ui| { ui.label(egui::RichText::new(&status_message).color(dir_color).text_style(egui::TextStyle::Small)); });
+                  //    ui.label("");
+                  //    ui.end_row();
+                  // }
+
+                  ui.label("Gradient Length (m):");
+                  ui.add_sized(
+                     egui::Vec2::new(100.0, 30.0),
+                     egui::DragValue::new(&mut self.temp_gradient_length)
+                     .range(500.0..=10000.0)
+                     .speed(10.0))
+                     .on_hover_text("The length of the gradient section to display (metres)");
+                  ui.end_row();
+
+                  ui.label("Gradient Offset (m):");
+                  ui.add_sized(
+                     egui::Vec2::new(100.0, 30.0),
+                     egui::DragValue::new(&mut self.temp_gradient_position)
+                     .range(100.0..=2000.0)
+                     .speed(10.0))
+                     .on_hover_text("The position within the gradient section where the rider currently is positioned (metres)");
+                  ui.end_row();
+
+                  ui.label("Flat Gradient (%):");
+                  ui.add_sized(
+                     egui::Vec2::new(100.0, 30.0),
+                     egui::DragValue::new(&mut self.temp_flat_gradient)
+                     .range(0.1..=2.0)
+                     .speed(0.1)
+                     .max_decimals(1))
+                     .on_hover_text("The gradient considered to be 'flat', e.g if 0.5 then -0.5 to 0.5 is flat");
+                  ui.end_row();
+
+                  ui.label("Extreme Gradient (%):");
+                  ui.add_sized(
+                     egui::Vec2::new(100.0, 30.0),
+                     egui::DragValue::new(&mut self.temp_extreme_gradient)
+                     .range(10.0..=25.0)
+                     .speed(0.5)
+                     .max_decimals(1))
+                     .on_hover_text("The gradient considered to be 'extreme' (black), e.g if > 16 then gradient color is black");
+                  ui.end_row();
+               });
+
+            ui.separator();
+
+            if ! status_message.is_empty()
+            {
+               ui.horizontal(|ui| { ui.label(egui::RichText::new(&status_message).color(status_color).text_style(egui::TextStyle::Small)); });
+               ui.separator();
+            }
+
+            ui.horizontal(|ui| {
+               if ui.button("Save").clicked()
+               {
+                  // let settings = SETTINGS.get_or_init(|| Arc::new(parking_lot::Mutex::new(Settings::new().get_settings_or_default())));
+                  // let mut settings_lock = settings.lock();
+
+                  // Save API key
+                  if !self.temp_api_key.is_empty()
+                  {
+                     match self.set_streetview_api_key_from_tmp()
+                     {
+                        | Ok(_) =>
+                        {
+                           // toast_manager.success("Settings saved successfully", Some(Duration::from_secs(3)));
+                           assist.encrypted_api_key = Some(self.temp_api_key.clone());
+                           assist.settings_dialog_message = "Settings saved successfully".to_string();
+                        }
+                        | Err(e) =>
+                        {
+                           assist.settings_dialog_message = format!("Failed to save API key: {}", e);
+                           //toast_manager.error(&format!("Failed to save API key: {}", e), None);
+                        }
+                     }
+                  }
+
+                  // Update gradient settings
+                  self.gradient_length = self.temp_gradient_length;
+                  self.gradient_position = self.temp_gradient_position;
+                  self.flat_gradient_percentage = self.temp_flat_gradient;
+                  self.extreme_gradient_percentage = self.temp_extreme_gradient;
+
+                  // Write settings to file
+                  match self.write_settings()
+                  {
+                     | Ok(_) =>
+                     {
+                        assist.show_settings_dialog_err = false;
+                     },
+                     | Err(e) =>
+                     {
+                        assist.settings_dialog_message = format!("Failed to write settings: {}", e);
+                        assist.show_settings_dialog_err = true;
+                        // toast_manager.error(&format!("Failed to write settings: {}", e), None);
+                     }
+                  }
+
+                  // Close dialog
+                  assist.show_settings_dialog = false;
+               }
+
+               if ui.button("Cancel").clicked()
+               {
+                  // Reset temp values
+                  self.temp_api_key.clear();
+                  self.temp_gradient_length = 3000.0;
+                  self.temp_gradient_position = 500.0;
+                  self.temp_flat_gradient = 0.5;
+                  self.temp_extreme_gradient = 16.0;
+                  self.show_api_key = false;
+
+                  // Close dialog
+                  assist.show_settings_dialog = false;
+                  assist.show_settings_dialog_err = false;
+                  assist.settings_dialog_message = "".to_string();
+               }
+            });
+         });
    }
 
    fn get_home_fallbacks() -> PathBuf

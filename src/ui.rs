@@ -30,39 +30,35 @@ const MENU_HEIGHT: u32 = 48;
 pub struct GPXAssistUI
 //====================
 {
-   toast_manager:          ToastManager,
-   encrypted_api_key:      Option<String>,
-   distance_method:        Option<DistanceMethod>,
-   is_first_map_frame:     bool,
-   is_first_street_frame:  bool,
-   is_first_gradient_frame:bool,
-   gpx_file:               Option<PathBuf>,
-   gpx_track:              Arc<Vec<TrackPoint>>,
-   total_distance:         f64,
-   current_distance:       f64,
-   updated_distance:       Arc<AtomicCell<f64>>,
-   requested_delta:        Arc<AtomicCell<f64>>,
-   simulated_speed:        Arc<AtomicCell<f64>>,
-   current_mode:           ViewMode,
-   textures:               HashMap<String, (TextureHandle, [f32; 2])>,
-   previous_position:      Option<TrackPoint>,
-   current_position:       Option<TrackPoint>,
-   open_dialog_channel:    (Sender<(Vec<TrackPoint>, String)>, Receiver<(Vec<TrackPoint>, String)>),
-   tiles:                  Option<HttpTiles>,
-   map_memory:             Option<MapMemory>,
-   streetview_texture:     Option<TextureHandle>,
-   gradient_texture:       Option<TextureHandle>,
-   is_simulating:          Arc<AtomicBool>,
-   is_running:             Arc<AtomicBool>,
-   rider_data:             Arc<AtomicCell<RiderData>>,
-   show_settings_dialog:   bool,
-   show_api_key:           bool,
-   temp_api_key:           String,
-   temp_broadcast_dir:     PathBuf,
-   temp_gradient_length:   f64,
-   temp_gradient_position: f64,
-   temp_flat_gradient:     f64,
-   temp_extreme_gradient:  f64
+   toast_manager:                ToastManager,
+   pub(crate) encrypted_api_key: Option<String>,
+   distance_method:              Option<DistanceMethod>,
+   is_first_map_frame:           bool,
+   is_first_street_frame:        bool,
+   is_first_gradient_frame:      bool,
+   gpx_file:                     Option<PathBuf>,
+   gpx_track:                    Arc<Vec<TrackPoint>>,
+   total_distance:               f64,
+   current_distance:             f64,
+   updated_distance:             Arc<AtomicCell<f64>>,
+   requested_delta:              Arc<AtomicCell<f64>>,
+   simulated_speed:              Arc<AtomicCell<f64>>,
+   current_mode:                 ViewMode,
+   textures:                     HashMap<String, (TextureHandle, [f32; 2])>,
+   previous_position:            Option<TrackPoint>,
+   current_position:             Option<TrackPoint>,
+   open_dialog_channel:          (Sender<(Vec<TrackPoint>, String)>, Receiver<(Vec<TrackPoint>, String)>),
+   tiles:                        Option<HttpTiles>,
+   map_memory:                   Option<MapMemory>,
+   streetview_texture:           Option<TextureHandle>,
+   gradient_texture:             Option<TextureHandle>,
+   is_simulating:                Arc<AtomicBool>,
+   is_running:                   Arc<AtomicBool>,
+   rider_data:                   Arc<AtomicCell<RiderData>>,
+
+   pub show_settings_dialog:     bool,
+   pub show_settings_dialog_err: bool,
+   pub settings_dialog_message:  String,
 }
 
 impl Default for GPXAssistUI
@@ -143,13 +139,8 @@ impl Default for GPXAssistUI
          is_running: Arc::new(AtomicBool::new(false)),
          rider_data: Arc::new(AtomicCell::new(RiderData::default())),
          show_settings_dialog: false,
-         show_api_key: false,
-         temp_api_key: String::new(),
-         temp_broadcast_dir: PathBuf::new(),
-         temp_gradient_length: 3000.0,
-         temp_gradient_position: 500.0,
-         temp_flat_gradient: 0.5,
-         temp_extreme_gradient: 16.0,
+         show_settings_dialog_err: false,
+         settings_dialog_message: String::new()
       }
    }
 }
@@ -270,264 +261,6 @@ impl GPXAssistUI
       // );
 
       app
-   }
-
-   /// Opens the settings dialog and loads current settings into temp fields
-   fn open_settings_dialog(&mut self)
-   //---------------------------------
-   {
-      let settings = SETTINGS.get_or_init(|| Arc::new(parking_lot::Mutex::new(Settings::new().get_settings_or_default())));
-      let settings_lock = settings.lock();
-
-      if let Ok(api_key) = settings_lock.get_streetview_api_key()
-      {
-         self.temp_api_key = api_key;
-      }
-      else
-      {
-         self.temp_api_key.clear();
-      }
-
-      self.temp_broadcast_dir = settings_lock.broadcast_directory.clone();
-      self.temp_gradient_length = settings_lock.gradient_length;
-      self.temp_gradient_position = settings_lock.gradient_position;
-      self.temp_flat_gradient = settings_lock.flat_gradient_percentage;
-      self.temp_extreme_gradient = settings_lock.extreme_gradient_percentage;
-
-      // Reset API key visibility
-      self.show_api_key = false;
-
-      // Show the dialog
-      self.show_settings_dialog = true;
-   }
-
-   /// Shows the settings dialog if it's open (call this every frame)
-   fn show_settings_dialog(&mut self, ctx: &Context)
-   //------------------------------------------------
-   {
-      if !self.show_settings_dialog
-      {
-         return;
-      }
-
-      let mut status_message: String = String::default();
-      let mut status_color = Color32::GREEN;
-      egui::Window::new("Settings")
-         .collapsible(false)
-         .resizable(false)
-         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-         .show(ctx, |ui| {
-            ui.set_min_width(500.0);
-
-            egui::Grid::new("settings_grid")
-               .num_columns(2)
-               .spacing([10.0, 10.0])
-               .striped(true)
-               .show(ui, |ui|
-               {
-                  ui.label("Street View API Key:");
-                  ui.horizontal(|ui|
-                  {
-                     ui.add_sized(Vec2::new(400.0, 30.0),
-                         egui::TextEdit::singleline(&mut self.temp_api_key)
-                        .hint_text("Enter your Google API key")
-                        .password(!self.show_api_key)
-                        // .desired_width(300.0)
-                     ).on_hover_text("Enter your Google API key");
-
-                     // Toggle button to show/hide API key
-                     let button_text = if self.show_api_key { "  🙈  " } else { "  👁  " };
-                     if ui.button(button_text).clicked() {
-                        self.show_api_key = !self.show_api_key;
-                     }
-                  });
-                  ui.end_row();
-
-                  let mut dir_color = Color32::GREEN;
-                  let mut dir =
-                  if self.temp_broadcast_dir.display().to_string().trim().is_empty()
-                  {
-                     dir_color = Color32::YELLOW;
-                     status_color = Color32::YELLOW;
-                     status_message = "WARN: Broadcast directory is not set.".to_string();
-                     // self.temp_broadcast_dir.clone()
-                     get_broadcast_directory_or_default()
-                  }
-                  else if ! self.temp_broadcast_dir.exists()
-                  {
-                     dir_color = Color32::RED;
-                     status_color = Color32::RED;
-                     status_message = format!("Directory {:?} does not exist.", self.temp_broadcast_dir);
-                     self.temp_broadcast_dir.clone()
-                     // get_broadcast_directory_or_default()
-                  }
-                  else
-                  {
-                     if ! self.temp_broadcast_dir.is_dir()
-                     {
-                        dir_color = Color32::RED;
-                        status_color = Color32::RED;
-                        status_message = format!("Directory {:?} is not a directory.", self.temp_broadcast_dir);
-                        // PathBuf::new()
-                        self.temp_broadcast_dir.clone()
-                     }
-                     else
-                     {
-                        let file_path = self.temp_broadcast_dir.join("focus.json");
-                        if ! file_path.exists() || ! file_path.is_file()
-                        {
-                           dir_color = Color32::YELLOW;
-                           status_color = Color32::YELLOW;
-                           status_message = format!("WARN: Broadcast file {:?} not found.", file_path);
-                           // PathBuf::new()
-                        }
-                        else
-                        {
-                           status_message = "".to_string();
-                           // self.temp_broadcast_dir.clone()
-                        }
-                        self.temp_broadcast_dir.clone()
-                     }
-                  };
-                  let mut dir_string = dir.display().to_string();
-
-                  ui.label("Broadcast Dir:");
-                  ui.horizontal(|ui|
-                  {
-                     let text_color = if dir_color == Color32::RED || dir_color == Color32::YELLOW
-                     {
-                        Color32::BLACK
-                     }
-                     else
-                     {
-                        Color32::WHITE
-                     };
-                     ui.style_mut().visuals.override_text_color = Some(text_color);
-                     ui.add_sized( egui::Vec2::new(400.0, 30.0), egui::TextEdit::singleline(&mut dir_string).background_color(dir_color));
-                     if ui.button("  📂  ").clicked()
-                     {
-                        // let dialog_future = rfd::AsyncFileDialog::new().set_directory(home).pick_file();
-                        if let Some(selected_dir) = rfd::FileDialog::new().set_directory(&dir).pick_folder()
-                        {
-                           self.temp_broadcast_dir = selected_dir;
-                        }
-                     }
-                  });
-                  ui.end_row();
-
-                  // if ! status_message.is_empty()
-                  // {
-                  //    ui.horizontal(|ui| { ui.label(egui::RichText::new(&status_message).color(dir_color).text_style(egui::TextStyle::Small)); });
-                  //    ui.label("");
-                  //    ui.end_row();
-                  // }
-
-                  ui.label("Gradient Length (m):");
-                  ui.add_sized(
-                     egui::Vec2::new(100.0, 30.0),
-                     egui::DragValue::new(&mut self.temp_gradient_length)
-                     .range(500.0..=10000.0)
-                     .speed(10.0))
-                     .on_hover_text("The length of the gradient section to display (metres)");
-                  ui.end_row();
-
-                  ui.label("Gradient Offset (m):");
-                  ui.add_sized(
-                     egui::Vec2::new(100.0, 30.0),
-                     egui::DragValue::new(&mut self.temp_gradient_position)
-                     .range(100.0..=2000.0)
-                     .speed(10.0))
-                     .on_hover_text("The position within the gradient section where the rider currently is positioned (metres)");
-                  ui.end_row();
-
-                  ui.label("Flat Gradient (%):");
-                  ui.add_sized(
-                     egui::Vec2::new(100.0, 30.0),
-                     egui::DragValue::new(&mut self.temp_flat_gradient)
-                     .range(0.1..=2.0)
-                     .speed(0.1)
-                     .max_decimals(1))
-                     .on_hover_text("The gradient considered to be 'flat', e.g if 0.5 then -0.5 to 0.5 is flat");
-                  ui.end_row();
-
-                  ui.label("Extreme Gradient (%):");
-                  ui.add_sized(
-                     egui::Vec2::new(100.0, 30.0),
-                     egui::DragValue::new(&mut self.temp_extreme_gradient)
-                     .range(10.0..=25.0)
-                     .speed(0.5)
-                     .max_decimals(1))
-                     .on_hover_text("The gradient considered to be 'extreme' (black), e.g if > 16 then gradient color is black");
-                  ui.end_row();
-               });
-
-            ui.separator();
-
-            if ! status_message.is_empty()
-            {
-               ui.horizontal(|ui| { ui.label(egui::RichText::new(&status_message).color(status_color).text_style(egui::TextStyle::Small)); });
-               ui.separator();
-            }
-
-            ui.horizontal(|ui| {
-               if ui.button("Save").clicked()
-               {
-                  // Save settings
-                  let settings = SETTINGS.get_or_init(|| Arc::new(parking_lot::Mutex::new(Settings::new().get_settings_or_default())));
-                  let mut settings_lock = settings.lock();
-
-                  // Save API key
-                  if !self.temp_api_key.is_empty()
-                  {
-                     match settings_lock.set_streetview_api_key(&self.temp_api_key)
-                     {
-                        | Ok(_) =>
-                        {
-                           self.toast_manager.success("Settings saved successfully", Some(Duration::from_secs(3)));
-                           self.encrypted_api_key = Some(self.temp_api_key.clone());
-                        }
-                        | Err(e) =>
-                        {
-                           self.toast_manager.error(&format!("Failed to save API key: {}", e), None);
-                        }
-                     }
-                  }
-
-                  // Update gradient settings
-                  settings_lock.gradient_length = self.temp_gradient_length;
-                  settings_lock.gradient_position = self.temp_gradient_position;
-                  settings_lock.flat_gradient_percentage = self.temp_flat_gradient;
-                  settings_lock.extreme_gradient_percentage = self.temp_extreme_gradient;
-
-                  // Write settings to file
-                  match settings_lock.write_settings()
-                  {
-                     | Ok(_) => (),
-                     | Err(e) =>
-                     {
-                        self.toast_manager.error(&format!("Failed to write settings: {}", e), None);
-                     }
-                  }
-
-                  // Close dialog
-                  self.show_settings_dialog = false;
-               }
-
-               if ui.button("Cancel").clicked()
-               {
-                  // Reset temp values
-                  self.temp_api_key.clear();
-                  self.temp_gradient_length = 3000.0;
-                  self.temp_gradient_position = 500.0;
-                  self.temp_flat_gradient = 0.5;
-                  self.temp_extreme_gradient = 16.0;
-                  self.show_api_key = false;
-
-                  // Close dialog
-                  self.show_settings_dialog = false;
-               }
-            });
-         });
    }
 
    #[allow(clippy::too_many_arguments)]
@@ -740,7 +473,9 @@ impl eframe::App for GPXAssistUI
                         .bg_fill(egui::Color32::from_rgb(232, 227, 209))
                         .fit_to_exact_size((*size).into()))).clicked()
                {
-                  self.open_settings_dialog();
+                  let settings = SETTINGS.get_or_init(|| Arc::new(parking_lot::Mutex::new(Settings::new().get_settings_or_default())));
+                  let mut settings_lock = settings.lock();
+                  settings_lock.open_settings_dialog(self);
                }
 
                ui.add_space(5.0);
@@ -1081,10 +816,31 @@ impl eframe::App for GPXAssistUI
             }
          });
 
-         // Show settings dialog if open
-         self.show_settings_dialog(ctx);
+         if self.show_settings_dialog
+         {
+            let settings = SETTINGS.get_or_init(|| Arc::new(parking_lot::Mutex::new(Settings::new().get_settings_or_default())));
+            let mut settings_lock = settings.lock();
+            // let toast_manager = &mut self.toast_manager;
+            settings_lock.show_settings_dialog(self, ctx);
+         }
+         else
+         {
+            let msg = self.settings_dialog_message.clone();
+            if ! msg.is_empty()
+            {
+               if ! self.show_settings_dialog_err
+               {
+                  self.toast_manager.info(&msg, Some(Duration::from_secs(3)));
+               }
+               else
+               {
+                  self.toast_manager.error(&msg, None);
+               }
+            }
+            self.settings_dialog_message.clear();
+            self.show_settings_dialog_err = false;
+         }
 
-         // Show toast notifications
          self.toast_manager.show(ctx);
 
    }
