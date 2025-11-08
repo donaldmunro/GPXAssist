@@ -4,7 +4,7 @@ use std::io::Write;
 use std::env;
 use std::path::PathBuf;
 
-use crate::ut;
+use crate::{ui, ut};
 
 const PROGRAM: &str = "GPXAssist";
 
@@ -12,7 +12,10 @@ const PROGRAM: &str = "GPXAssist";
 pub struct Settings
 {
    // #[serde(skip)] program: String,
+   #[serde(default = "Settings::get_home_dir")]
    last_directory: PathBuf,
+   #[serde(default = "ui::get_broadcast_directory_or_default")]
+   pub(crate) broadcast_directory: PathBuf,
    pub(crate) gradient_length: f64,
    pub(crate) gradient_position: f64,
    pub(crate) flat_gradient_percentage: f64,
@@ -33,6 +36,7 @@ impl Default for Settings
       Self
       {
          last_directory: default_open_dir,
+         broadcast_directory: ui::get_broadcast_directory_or_default(),
          gradient_length: 3000.0,
          gradient_position: 500.0,
          flat_gradient_percentage: 0.5,
@@ -56,7 +60,7 @@ impl Settings
       let _settings_dir = match self.get_settings_path()
       {
          Ok(pb) => pb,
-         Err(e) => 
+         Err(e) =>
          {
             let errmsg = format!("Error getting settings path: {}", e);
             eprintln!("{errmsg}");
@@ -79,7 +83,7 @@ impl Settings
             }
          }
       };
-      
+
       if ! settings_path.exists()
       {
          settings_path = match self.write_default_settings()

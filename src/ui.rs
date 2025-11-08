@@ -4,11 +4,11 @@ use tempfile::NamedTempFile;
 use crossbeam::atomic::AtomicCell;
 
 use chrono::{Local, DateTime};
-use eframe::{CreationContext, egui::{self, ColorImage, Context, Frame, Image, TextureHandle, Vec2}, emath::Numeric};
+use eframe::{CreationContext, egui::{self, Color32, ColorImage, Context, Frame, Image, TextureHandle, Vec2}, emath::Numeric};
 use walkers::{HttpTiles, Map, MapMemory, lon_lat, sources::OpenStreetMap};
 use include_dir::{include_dir, Dir};
 
-use crate::{STARTUP_PARAMS, components::{DirectionalArrow, ToastManager}, data::RiderDataJSON, data::RiderData, gpx::{DistanceMethod, TrackPoint, find_closest_point, process_gpx}};
+use crate::{STARTUP_PARAMS, components::{self, DirectionalArrow, ToastManager}, data::{RiderData, RiderDataJSON}, gpx::{DistanceMethod, TrackPoint, find_closest_point, process_gpx}};
 use crate::SETTINGS;
 use crate::settings::Settings;
 use crate::ut;
@@ -31,7 +31,7 @@ pub struct GPXAssistUI
 //====================
 {
    toast_manager:          ToastManager,
-   encrypted_api_key:      Option<String>, //TODO: Actually do encrypted version
+   encrypted_api_key:      Option<String>,
    distance_method:        Option<DistanceMethod>,
    is_first_map_frame:     bool,
    is_first_street_frame:  bool,
@@ -58,10 +58,11 @@ pub struct GPXAssistUI
    show_settings_dialog:   bool,
    show_api_key:           bool,
    temp_api_key:           String,
+   temp_broadcast_dir:     PathBuf,
    temp_gradient_length:   f64,
    temp_gradient_position: f64,
    temp_flat_gradient:     f64,
-   temp_extreme_gradient:  f64,
+   temp_extreme_gradient:  f64
 }
 
 impl Default for GPXAssistUI
@@ -144,6 +145,7 @@ impl Default for GPXAssistUI
          show_settings_dialog: false,
          show_api_key: false,
          temp_api_key: String::new(),
+         temp_broadcast_dir: PathBuf::new(),
          temp_gradient_length: 3000.0,
          temp_gradient_position: 500.0,
          temp_flat_gradient: 0.5,
@@ -274,11 +276,9 @@ impl GPXAssistUI
    fn open_settings_dialog(&mut self)
    //---------------------------------
    {
-      // Load current settings into temp fields
       let settings = SETTINGS.get_or_init(|| Arc::new(parking_lot::Mutex::new(Settings::new().get_settings_or_default())));
       let settings_lock = settings.lock();
 
-      // Try to get the decrypted API key
       if let Ok(api_key) = settings_lock.get_streetview_api_key()
       {
          self.temp_api_key = api_key;
@@ -288,6 +288,7 @@ impl GPXAssistUI
          self.temp_api_key.clear();
       }
 
+      self.temp_broadcast_dir = settings_lock.broadcast_directory.clone();
       self.temp_gradient_length = settings_lock.gradient_length;
       self.temp_gradient_position = settings_lock.gradient_position;
       self.temp_flat_gradient = settings_lock.flat_gradient_percentage;
@@ -309,6 +310,8 @@ impl GPXAssistUI
          return;
       }
 
+      let mut status_message: String = String::default();
+      let mut status_color = Color32::GREEN;
       egui::Window::new("Settings")
          .collapsible(false)
          .resizable(false)
@@ -320,23 +323,104 @@ impl GPXAssistUI
                .num_columns(2)
                .spacing([10.0, 10.0])
                .striped(true)
-               .show(ui, |ui| {
-                  // Google Street View API Key
+               .show(ui, |ui|
+               {
                   ui.label("Street View API Key:");
-                  ui.horizontal(|ui| {
-                     ui.add(egui::TextEdit::singleline(&mut self.temp_api_key)
+                  ui.horizontal(|ui|
+                  {
+                     ui.add_sized(Vec2::new(400.0, 30.0),
+                         egui::TextEdit::singleline(&mut self.temp_api_key)
                         .hint_text("Enter your Google API key")
                         .password(!self.show_api_key)
-                        .desired_width(300.0))
-                        .on_hover_text("Enter your Google API key");
+                        // .desired_width(300.0)
+                     ).on_hover_text("Enter your Google API key");
 
                      // Toggle button to show/hide API key
-                     let button_text = if self.show_api_key { "🙈 Hide" } else { "👁 Show" };
+                     let button_text = if self.show_api_key { "  🙈  " } else { "  👁  " };
                      if ui.button(button_text).clicked() {
                         self.show_api_key = !self.show_api_key;
                      }
                   });
                   ui.end_row();
+
+                  let mut dir_color = Color32::GREEN;
+                  let mut dir =
+                  if self.temp_broadcast_dir.display().to_string().trim().is_empty()
+                  {
+                     dir_color = Color32::YELLOW;
+                     status_color = Color32::YELLOW;
+                     status_message = "WARN: Broadcast directory is not set.".to_string();
+                     // self.temp_broadcast_dir.clone()
+                     get_broadcast_directory_or_default()
+                  }
+                  else if ! self.temp_broadcast_dir.exists()
+                  {
+                     dir_color = Color32::RED;
+                     status_color = Color32::RED;
+                     status_message = format!("Directory {:?} does not exist.", self.temp_broadcast_dir);
+                     self.temp_broadcast_dir.clone()
+                     // get_broadcast_directory_or_default()
+                  }
+                  else
+                  {
+                     if ! self.temp_broadcast_dir.is_dir()
+                     {
+                        dir_color = Color32::RED;
+                        status_color = Color32::RED;
+                        status_message = format!("Directory {:?} is not a directory.", self.temp_broadcast_dir);
+                        // PathBuf::new()
+                        self.temp_broadcast_dir.clone()
+                     }
+                     else
+                     {
+                        let file_path = self.temp_broadcast_dir.join("focus.json");
+                        if ! file_path.exists() || ! file_path.is_file()
+                        {
+                           dir_color = Color32::YELLOW;
+                           status_color = Color32::YELLOW;
+                           status_message = format!("WARN: Broadcast file {:?} not found.", file_path);
+                           // PathBuf::new()
+                        }
+                        else
+                        {
+                           status_message = "".to_string();
+                           // self.temp_broadcast_dir.clone()
+                        }
+                        self.temp_broadcast_dir.clone()
+                     }
+                  };
+                  let mut dir_string = dir.display().to_string();
+
+                  ui.label("Broadcast Dir:");
+                  ui.horizontal(|ui|
+                  {
+                     let text_color = if dir_color == Color32::RED || dir_color == Color32::YELLOW
+                     {
+                        Color32::BLACK
+                     }
+                     else
+                     {
+                        Color32::WHITE
+                     };
+                     ui.style_mut().visuals.override_text_color = Some(text_color);
+                     ui.add_sized( egui::Vec2::new(400.0, 30.0), egui::TextEdit::singleline(&mut dir_string).background_color(dir_color));
+                     if ui.button("  📂  ").clicked()
+                     {
+                        // let dialog_future = rfd::AsyncFileDialog::new().set_directory(home).pick_file();
+                        if let Some(selected_dir) = rfd::FileDialog::new().set_directory(&dir).pick_folder()
+                        {
+                           self.temp_broadcast_dir = selected_dir;
+                        }
+                     }
+                  });
+                  ui.end_row();
+
+                  // if ! status_message.is_empty()
+                  // {
+                  //    ui.horizontal(|ui| { ui.label(egui::RichText::new(&status_message).color(dir_color).text_style(egui::TextStyle::Small)); });
+                  //    ui.label("");
+                  //    ui.end_row();
+                  // }
 
                   ui.label("Gradient Length (m):");
                   ui.add_sized(
@@ -378,6 +462,12 @@ impl GPXAssistUI
                });
 
             ui.separator();
+
+            if ! status_message.is_empty()
+            {
+               ui.horizontal(|ui| { ui.label(egui::RichText::new(&status_message).color(status_color).text_style(egui::TextStyle::Small)); });
+               ui.separator();
+            }
 
             ui.horizontal(|ui| {
                if ui.button("Save").clicked()
@@ -545,7 +635,7 @@ impl GPXAssistUI
       is_running.store(true, Ordering::Relaxed);
    }
 
-   fn check_update_file(&mut self)
+   fn check_broadcast_file(&mut self) -> (bool, bool)
    //----------------------------------
    {
       let broadcast_file = get_broadcast_file();
@@ -559,25 +649,12 @@ impl GPXAssistUI
             | Err(e) =>
             {
                eprintln!("Error getting broadcast file age: {}", e);
-               return;
+               chrono::Duration::zero()
             }
          };
       }
       let is_aged = age.num_minutes() > 1;
-      if ! is_exists || is_aged
-      {
-         let age_msg = if is_aged
-         {
-            " or the broadcast file has not been updated recently "
-         }
-         else
-         {
-            ""
-         };
-         let errmsg = format!("Could not find a valid TrainingPeaks Virtual broadcast file{}at {:#?}", age_msg, broadcast_file);
-         self.toast_manager.warning(errmsg, Some(Duration::from_secs(10)));
-         return;
-      }
+      (is_exists, is_aged)
    }
 }
 
@@ -630,7 +707,20 @@ impl eframe::App for GPXAssistUI
                   self.is_first_map_frame = false;
                   self.is_first_street_frame = false;
                   self.is_first_gradient_frame = false;
-                  self.check_update_file();
+                  let (is_exists, is_aged) = self.check_broadcast_file();
+                  if ! is_exists || is_aged
+                  {
+                     let age_msg = if is_aged
+                     {
+                        " or the broadcast file has not been updated recently "
+                     }
+                     else
+                     {
+                        ""
+                     };
+                     let errmsg = format!("Could not find a valid TrainingPeaks Virtual broadcast file{}at {:#?}", age_msg, get_broadcast_file());
+                     self.toast_manager.warning(errmsg, Some(Duration::from_secs(10)));
+                  }
                   std::thread::spawn(move ||
                   {
                      Self::update_distance_thread(ctxx, updated_distance, track, requested_delta, rider_data, total_distance, is_running);
@@ -790,19 +880,13 @@ impl eframe::App for GPXAssistUI
                   ui.add(image);
                });
             }
-            else if ! self.is_simulating.load(Ordering::Relaxed) && ( (broadcast_file.is_none() || !broadcast_file.as_ref().unwrap().is_file()) )
+            else if ! self.is_simulating.load(Ordering::Relaxed) && (broadcast_file.is_none() || !broadcast_file.as_ref().unwrap().is_file())
             {
-               let age = match ut::get_file_age(broadcast_file.as_ref().unwrap())
+               let (is_exists, is_aged) = self.check_broadcast_file();
+               if ! is_exists || is_aged
                {
-                  | Ok(d) => d.num_minutes(),
-                  | Err(_e) =>
-                  {
-                     // eprintln!("Error getting broadcast file age: {}", e);
-                     -1 as i64
-                  }
-               };
-               let is_aged = age >= 1;
-               display_invalid_broadcast_directory(ui, is_aged);
+                  display_invalid_broadcast_directory(ui, is_aged);
+               }
             }
             else
             {
@@ -1636,11 +1720,11 @@ fn fetch_image_from_url(url: &str) -> Result<ColorImage, String>
    Ok(ColorImage::from_rgba_unmultiplied(size, &pixels))
 }
 
-fn get_broadcast_directory() -> Option<PathBuf>
+pub fn get_broadcast_directory() -> Option<PathBuf>
 //---------------------------------------------
 {
    if cfg!(target_os = "macos")
-   {  // ~/TPVirtual/Broadcast/focus.json 
+   {  // ~/TPVirtual/Broadcast/focus.json
       match dirs::home_dir()
       {
          | Some(dir) =>
@@ -1663,7 +1747,35 @@ fn get_broadcast_directory() -> Option<PathBuf>
    }
 }
 
-fn get_broadcast_file() -> Option<PathBuf>
+pub fn get_broadcast_directory_or_default() -> PathBuf
+//---------------------------------------------
+{
+   if cfg!(target_os = "macos")
+   {  // ~/TPVirtual/Broadcast/focus.json
+      match dirs::home_dir()
+      {
+         | Some(dir) =>
+         {
+            dir.join("TPVirtual").join("Broadcast").clone()
+         },
+         | None => PathBuf::new()
+
+      }
+   }
+   else
+   {
+      match dirs::document_dir()
+      {
+         | Some(dir) =>
+         {
+            dir.join("TPVirtual").join("Broadcast").clone()
+         },
+         | None => PathBuf::new()
+      }
+   }
+}
+
+pub fn get_broadcast_file() -> Option<PathBuf>
 //---------------------------------------------
 {
    match get_broadcast_directory()
@@ -1715,7 +1827,7 @@ fn read_rider_data(parse_retries: i64, retry_duration: Duration) -> Option<Rider
       };
 
       // The data as read from disk has 3 binary characters at the start which cause JSON parsing to fail.
-      // Turns out its a UTF-8 BOM (Byte Order Mark) (https://en.wikipedia.org/wiki/Byte_order_mark) 
+      // Turns out its a UTF-8 BOM (Byte Order Mark) (https://en.wikipedia.org/wiki/Byte_order_mark)
       // which Rusts standard library does not strip automatically.
       let mut pch = rider_json_data.find('[');
       if pch.is_none()
