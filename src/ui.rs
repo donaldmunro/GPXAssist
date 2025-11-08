@@ -440,20 +440,6 @@ impl eframe::App for GPXAssistUI
                   self.is_first_map_frame = false;
                   self.is_first_street_frame = false;
                   self.is_first_gradient_frame = false;
-                  let (is_exists, is_aged) = self.check_broadcast_file();
-                  if ! is_exists || is_aged
-                  {
-                     let age_msg = if is_aged
-                     {
-                        " or the broadcast file has not been updated recently "
-                     }
-                     else
-                     {
-                        ""
-                     };
-                     let errmsg = format!("Could not find a valid TrainingPeaks Virtual broadcast file{}at {:#?}", age_msg, get_broadcast_file());
-                     self.toast_manager.warning(errmsg, Some(Duration::from_secs(10)));
-                  }
                   std::thread::spawn(move ||
                   {
                      Self::update_distance_thread(ctxx, updated_distance, track, requested_delta, rider_data, total_distance, is_running);
@@ -601,7 +587,8 @@ impl eframe::App for GPXAssistUI
          egui::CentralPanel::default()
          .show(ctx, |ui|
          {
-            let broadcast_file= get_broadcast_file();
+            let (exists_broadcast_file, aged_broadcast_file) = self.check_broadcast_file();
+            let broadcast_file = get_broadcast_file();
             if self.current_mode == ViewMode::NA || self.gpx_file.is_none() || self.total_distance == 0.0
             {
                let available_size = ui.available_size();
@@ -615,13 +602,10 @@ impl eframe::App for GPXAssistUI
                   ui.add(image);
                });
             }
-            else if ! self.is_simulating.load(Ordering::Relaxed) && (broadcast_file.is_none() || !broadcast_file.as_ref().unwrap().is_file())
+            else if ! self.is_simulating.load(Ordering::Relaxed) && (broadcast_file.is_none() || !broadcast_file.as_ref().unwrap().is_file() || ! exists_broadcast_file || aged_broadcast_file)
             {
-               let (is_exists, is_aged) = self.check_broadcast_file();
-               if ! is_exists || is_aged
-               {
-                  display_invalid_broadcast_directory(ui, is_aged);
-               }
+               let delta = self.requested_delta.load();
+               display_invalid_broadcast_directory(ui, aged_broadcast_file, delta);
             }
             else
             {
@@ -883,7 +867,7 @@ fn load_embedded_png(asset_name: &str) -> Result<ColorImage, String>
    Ok(ColorImage::from_rgba_unmultiplied(size, &pixels))
 }
 
-fn display_invalid_broadcast_directory(ui: &mut egui::Ui, is_aged: bool)
+fn display_invalid_broadcast_directory(ui: &mut egui::Ui, is_aged: bool, delta: f64)
 //----------------------------------------------------
 {
    let broadcast_file = match get_broadcast_file()
@@ -891,15 +875,17 @@ fn display_invalid_broadcast_directory(ui: &mut egui::Ui, is_aged: bool)
       | Some(dir) => dir,
       | None => PathBuf::from(""),
    };
-   let age_msg = if is_aged
+   let err_color:  Color32;
+   let errmsg = if broadcast_file.is_file() && is_aged
    {
-      " or the broadcast file has not been updated recently "
+      err_color = Color32::YELLOW;
+      format!("The broadcast file {:?} has not been updated recently enough (try pedalling for more than {} metres).", broadcast_file, delta).to_string()
    }
    else
    {
-      ""
+      err_color = Color32::RED;
+      format!("Could not find a valid TrainingPeaks Virtual broadcast file at {:#?}.", broadcast_file).to_string()
    };
-   let errmsg = format!("Could not find a valid TrainingPeaks Virtual broadcast file{}at {:#?}", age_msg, broadcast_file);
 
    // Load embedded PNG images - unwrap is safe since assets are embedded at compile time
    let color_img_1 = load_embedded_png("menu-1.png").expect("menu-1.png should be embedded");
@@ -923,8 +909,10 @@ fn display_invalid_broadcast_directory(ui: &mut egui::Ui, is_aged: bool)
       .shrink_to_fit();
    ui.vertical(|ui|
    {
+      ui.add_space(16.0);
       ui.add(egui::Label::new( egui::RichText::new(errmsg)
-               .strong().color(egui::Color32::RED)));
+               .strong().color(err_color)));
+      ui.add_space(32.0);
       ui.separator();
       ui.add(egui::Label::new( egui::RichText::new("Try opening settings in TrainingPeaks Virtual")
                .color(egui::Color32::GREEN)));
