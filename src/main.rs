@@ -3,7 +3,7 @@ use std::sync::Arc;
 // use std::rc::Rc;
 
 use clap::Parser;
-use eframe::{CreationContext, egui};
+use eframe::egui;
 use lazy_static::lazy_static;
 
 
@@ -36,7 +36,6 @@ struct Args
 
 struct StartupParameters
 {
-   method:    Option<gpx::DistanceMethod>,
    file_path: Option<String>,
 }
 
@@ -55,16 +54,6 @@ fn main()
    {
       let cmdline_opts = STARTUP_PARAMS.lock();
       let args = Args::parse();
-      let method = match args.method
-      {
-         | 'h' | 'H' => gpx::DistanceMethod::Haversine,
-         | 'e' | 'E' => gpx::DistanceMethod::ECEF,
-         | _ =>
-         {
-            eprintln!("Invalid method. Use 'h' for Haversine or 'e' for ECEF.");
-            return;
-         }
-      };
 
       let update_password = args.password.trim();
 
@@ -89,12 +78,12 @@ fn main()
          file_path = Some(filepath.clone());
       }
       if !update_password.is_empty()
-      {         
+      {
          let settings = SETTINGS.get_or_init(|| Arc::new(parking_lot::Mutex::new(Settings::new().get_settings_or_default())));
          match settings.lock().set_streetview_api_key(&update_password)
          {
             | Ok(_) =>
-            {               
+            {
                println!("Password encrypted and saved to settings file");
                return
             },
@@ -103,11 +92,10 @@ fn main()
                eprintln!("Error saving settings with new password: {}", e);
                return
             }
-         }          
+         }
       }
 
-      cmdline_opts.replace(Some(StartupParameters { method:    Some(method.clone()),
-                                                    file_path: file_path, }));
+      cmdline_opts.replace(Some(StartupParameters { file_path }));
    }
    let options = eframe::NativeOptions { viewport: egui::ViewportBuilder::default().with_inner_size([1024.0, 1024.0]),
                                          ..Default::default() };

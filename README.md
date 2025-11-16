@@ -3,6 +3,15 @@
 ## Releases
 
 Releases: 
+- [v0.3 Second Release](https://github.com/donaldmunro/GPXAssist/releases/tag/v0.3)
+    
+    Main change is both a bug fix and a big improvement to the gradient profile display. 
+    The fix is with respect to making the gradient display adhere to the correct aspect ratio, whereas before the vertical scaling was not correct.
+
+    The improvement is to separate the refresh distance for the gradient display from the refresh distance for the map and street view displays, so as to allow faster updating of the gradient display. This means the current position in the gradient profile is more accurate, when showing the current position in the profile. The rider position marker will now move within the gradient profile with the movement refreshed based on the gradient refresh distance. The gradient display will be redrawn with the position marker reset to the specified offset in the profile when next refresh distance for the map/street view display is reached, with more of the upcoming gradient profile shown. Note both distance updates are dependent on the broadcast update interval specified in TrainingPeaks Virtual, which is specified in seconds.
+
+    All setting pertinent to the gradient display are also now available within the gradient display itself so they can be changed dynamically while viewing the gradient display (see updated gradient display image below).
+
 - [v0.2 Initial Release](https://github.com/donaldmunro/GPXAssist/releases/tag/v0.2)
 
 ~~Note: I do not currently own an Apple device or Apple developer account, so there are no MacOS builds currently available (see the Usage section below for building it). 

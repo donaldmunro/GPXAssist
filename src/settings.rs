@@ -1,15 +1,13 @@
 //#![feature(os_str_display)]
-use std::{fs::File, sync::Arc};
+use std::{fs::File};
 use std::io::Write;
 use std::env;
 use std::path::PathBuf;
 
-use std::time::Duration;
 use eframe::egui::{self, Color32, Context, Vec2};
 
-use crate::components::ToastManager;
 use crate::ui::get_broadcast_directory_or_default;
-use crate::{SETTINGS, ui::{self, GPXAssistUI}, ut};
+use crate::{ ui::{self, GPXAssistUI}, ut };
 
 const PROGRAM: &str = "GPXAssist";
 
@@ -22,18 +20,20 @@ pub struct Settings
    #[serde(default = "ui::get_broadcast_directory_or_default")]
    pub(crate) broadcast_directory: PathBuf,
    pub(crate) gradient_length: f64,
-   pub(crate) gradient_position: f64,
+   pub(crate) gradient_offset: f64,
    pub(crate) flat_gradient_percentage: f64,
    pub(crate) extreme_gradient_percentage: f64,
+   pub(crate) vertical_exaggeration: f64,
    streetview_api_key: String,
 
-   #[serde(skip)] show_api_key:           bool,
-   #[serde(skip)] temp_api_key:           String,
-   #[serde(skip)] temp_broadcast_dir:     PathBuf,
-   #[serde(skip)] temp_gradient_length:   f64,
-   #[serde(skip)] temp_gradient_position: f64,
-   #[serde(skip)] temp_flat_gradient:     f64,
-   #[serde(skip)] temp_extreme_gradient:  f64
+   #[serde(skip)] show_api_key:              bool,
+   #[serde(skip)] temp_api_key:              String,
+   #[serde(skip)] temp_broadcast_dir:        PathBuf,
+   #[serde(skip)] temp_gradient_length:      f64,
+   #[serde(skip)] temp_gradient_offset:      f64,
+   #[serde(skip)] temp_flat_gradient:        f64,
+   #[serde(skip)] temp_extreme_gradient:     f64,
+   #[serde(skip)] temp_vertical_exaggeration: f64
 }
 
 impl Default for Settings
@@ -51,18 +51,20 @@ impl Default for Settings
          last_directory: default_open_dir,
          broadcast_directory: ui::get_broadcast_directory_or_default(),
          gradient_length: 3000.0,
-         gradient_position: 500.0,
+         gradient_offset: 500.0,
          flat_gradient_percentage: 0.5,
          extreme_gradient_percentage: 16.0,
+         vertical_exaggeration: 10.0,
          streetview_api_key: String::new(),
 
          show_api_key: false,
          temp_api_key: String::new(),
          temp_broadcast_dir: PathBuf::new(),
          temp_gradient_length: 3000.0,
-         temp_gradient_position: 500.0,
+         temp_gradient_offset: 500.0,
          temp_flat_gradient: 0.5,
-         temp_extreme_gradient: 16.0
+         temp_extreme_gradient: 16.0,
+         temp_vertical_exaggeration: 10.0
       }
    }
 }
@@ -442,9 +444,10 @@ impl Settings
 
       self.temp_broadcast_dir = self.broadcast_directory.clone();
       self.temp_gradient_length = self.gradient_length;
-      self.temp_gradient_position = self.gradient_position;
+      self.temp_gradient_offset = self.gradient_offset;
       self.temp_flat_gradient = self.flat_gradient_percentage;
       self.temp_extreme_gradient = self.extreme_gradient_percentage;
+      self.temp_vertical_exaggeration = self.vertical_exaggeration;
       self.show_api_key = false;
 
       // Show the dialog
@@ -583,7 +586,7 @@ impl Settings
                   ui.label("Gradient Offset (m):");
                   ui.add_sized(
                      egui::Vec2::new(100.0, 30.0),
-                     egui::DragValue::new(&mut self.temp_gradient_position)
+                     egui::DragValue::new(&mut self.temp_gradient_offset)
                      .range(100.0..=2000.0)
                      .speed(10.0))
                      .on_hover_text("The position within the gradient section where the rider currently is positioned (metres)");
@@ -607,6 +610,16 @@ impl Settings
                      .speed(0.5)
                      .max_decimals(1))
                      .on_hover_text("The gradient considered to be 'extreme' (black), e.g if > 16 then gradient color is black");
+                  ui.end_row();
+
+                  ui.label("Vertical Exaggeration:");
+                  ui.add_sized(
+                     egui::Vec2::new(100.0, 30.0),
+                     egui::DragValue::new(&mut self.temp_vertical_exaggeration)
+                     .range(1.0..=50.0)
+                     .speed(0.5)
+                     .max_decimals(1))
+                     .on_hover_text("Vertical exaggeration factor for elevation plot (1.0 = true scale, 10.0 = default, higher = more vertical stretch)");
                   ui.end_row();
                });
 
@@ -645,9 +658,10 @@ impl Settings
 
                   // Update gradient settings
                   self.gradient_length = self.temp_gradient_length;
-                  self.gradient_position = self.temp_gradient_position;
+                  self.gradient_offset = self.temp_gradient_offset;
                   self.flat_gradient_percentage = self.temp_flat_gradient;
                   self.extreme_gradient_percentage = self.temp_extreme_gradient;
+                  self.vertical_exaggeration = self.temp_vertical_exaggeration;
 
                   // Write settings to file
                   match self.write_settings()
@@ -673,9 +687,10 @@ impl Settings
                   // Reset temp values
                   self.temp_api_key.clear();
                   self.temp_gradient_length = 3000.0;
-                  self.temp_gradient_position = 500.0;
+                  self.temp_gradient_offset = 500.0;
                   self.temp_flat_gradient = 0.5;
                   self.temp_extreme_gradient = 16.0;
+                  self.temp_vertical_exaggeration = 10.0;
                   self.show_api_key = false;
 
                   // Close dialog

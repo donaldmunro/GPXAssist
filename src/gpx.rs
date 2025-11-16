@@ -29,6 +29,20 @@ pub struct TrackPoint
    pub altitude: f64
 }
 
+impl Default for TrackPoint
+{
+   fn default() -> Self
+   {
+      TrackPoint
+      {
+         distance: -1.0,
+         point:    Point { lat: 0.0, lon: 0.0, },
+         heading:  0.0,
+         altitude: 0.0,
+      }
+   }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct ECEFCoord
 {
@@ -37,31 +51,22 @@ struct ECEFCoord
    z: f64,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum DistanceMethod
-{
-   Haversine,
-   ECEF,
-}
+// fn haversine_distance(p1: Point, p2: Point) -> f64
+// //------------------------------------------------
+// {
+//    let lat1_rad = p1.lat.to_radians();
+//    let lon1_rad = p1.lon.to_radians();
+//    let lat2_rad = p2.lat.to_radians();
+//    let lon2_rad = p2.lon.to_radians();
 
-/// Calculates the distance between two GPS coordinates using the Haversine formula.
-/// Returns the distance in meters.
-fn haversine_distance(p1: Point, p2: Point) -> f64
-//------------------------------------------------
-{
-   let lat1_rad = p1.lat.to_radians();
-   let lon1_rad = p1.lon.to_radians();
-   let lat2_rad = p2.lat.to_radians();
-   let lon2_rad = p2.lon.to_radians();
+//    let d_lat = lat2_rad - lat1_rad;
+//    let d_lon = lon2_rad - lon1_rad;
 
-   let d_lat = lat2_rad - lat1_rad;
-   let d_lon = lon2_rad - lon1_rad;
+//    let a = (d_lat / 2.0).sin().powi(2) + lat1_rad.cos() * lat2_rad.cos() * (d_lon / 2.0).sin().powi(2);
+//    let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
 
-   let a = (d_lat / 2.0).sin().powi(2) + lat1_rad.cos() * lat2_rad.cos() * (d_lon / 2.0).sin().powi(2);
-   let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
-
-   EARTH_RADIUS_METERS * c
-}
+//    EARTH_RADIUS_METERS * c
+// }
 
 fn geodetic_to_ecef(p: Point) -> ECEFCoord
 //----------------------------------------
@@ -91,7 +96,7 @@ fn ECEF_distance(p1: Point, p2: Point) -> f64
    ((ecef2.x - ecef1.x).powi(2) + (ecef2.y - ecef1.y).powi(2) + (ecef2.z - ecef1.z).powi(2)).sqrt()
 }
 
-pub fn build_track_data(path: &Path, method: DistanceMethod) -> Result<Vec<TrackPoint>, Box<dyn std::error::Error>>
+pub fn build_track_data(path: &Path) -> Result<Vec<TrackPoint>, Box<dyn std::error::Error>>
 //-------------------------------------------------------------------------------------------------------------
 {
    let file = File::open(path)?;
@@ -114,11 +119,7 @@ pub fn build_track_data(path: &Path, method: DistanceMethod) -> Result<Vec<Track
 
       if let Some(prev_point) = last_point
       {
-         let segment_distance = match method
-         {
-            | DistanceMethod::Haversine => haversine_distance(prev_point, current_point),
-            | DistanceMethod::ECEF => ECEF_distance(prev_point, current_point),
-         };
+         let segment_distance = ECEF_distance(prev_point, current_point);
          cumulative_distance += segment_distance;
          current_heading = calculate_bearing(prev_point.lat, prev_point.lon, current_point.lat, current_point.lon);
       }
@@ -135,7 +136,7 @@ pub fn build_track_data(path: &Path, method: DistanceMethod) -> Result<Vec<Track
    Ok(track_data)
 }
 
-pub fn process_gpx(file_path: &str, method: DistanceMethod) -> Result<Vec<TrackPoint>, Box<dyn std::error::Error>>
+pub fn process_gpx(file_path: &str) -> Result<Vec<TrackPoint>, Box<dyn std::error::Error>>
 //-------------------------------------------------------
 {
    let gpx_file_path = std::path::Path::new(file_path);
@@ -152,7 +153,7 @@ pub fn process_gpx(file_path: &str, method: DistanceMethod) -> Result<Vec<TrackP
       eprintln!("The path {} is not a valid file.", file_path);
       return Err(format!("Not a file {}.", file_path).into());
    }
-   let track = match build_track_data(gpx_file_path, method)
+   let track = match build_track_data(gpx_file_path)
    {
       | Ok(data) =>
       {

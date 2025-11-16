@@ -14,7 +14,7 @@ def main():
     increment = int(sys.argv[2])
     total = int(sys.argv[3])
     sleep_time = float(sys.argv[4])
-
+    distance = 0
     while True:
         # Read the file as binary to handle the BOM
         with open(path, 'rb') as f:
@@ -44,9 +44,10 @@ def main():
         data = json.loads(f"[{json_content}]")
 
         # Update the distance field
+        distance += increment
         for item in data:
             if "distance" in item:
-                item["distance"] += increment
+                item["distance"] = distance
 
         # Check if any distance exceeds the total
         should_exit = False
