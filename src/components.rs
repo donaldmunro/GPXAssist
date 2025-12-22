@@ -34,7 +34,7 @@ impl Plugin for DirectionalArrow
       // Draw the wind arrow if wind speed is significant
       if self.wind_speed.abs() > 0.5
       {
-         let wind_rad = (360.0 - self.wind_angle as f64).to_radians();
+         let wind_rad = (self.wind_angle as f64).to_radians();
          draw_wind_arrow(ui, screen_pos, wind_rad as f32, self.wind_speed as f32);
       }
    }

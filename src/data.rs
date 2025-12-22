@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RiderDataJSON 
+pub struct RiderDataJSON
 {
     pub name: String,
     pub country: String,
@@ -25,10 +25,13 @@ pub struct RiderDataJSON
     pub avg_heartrate: i32,
     #[serde(rename = "maxHeartrate")]
     pub max_heartrate: i32,
+    pub latitude: f64,   // added in release
+    pub longitude: f64,  // added in release
+    pub altitude: f64,   // added in release
     pub time: i32,
     pub distance: i32,
     pub height: i32,
-    pub speed: i32, // speed in millimetres per second. 1 mm/s = 0.0036 km/h, 
+    pub speed: i32, // speed in millimetres per second. 1 mm/s = 0.0036 km/h,
     pub tss: i32,
     pub calories: i32,
     pub draft: i32,
@@ -51,20 +54,20 @@ pub struct RiderDataJSON
     pub event_next_location: i32,
     #[serde(rename = "eventPosition")]
     pub event_position: i32,
-    #[serde(skip)]
-    pub latitude: f64,
-    #[serde(skip)]
-    pub longitude: f64, 
-    #[serde(skip)]
-    pub altitude: f64
+    // #[serde(skip)]
+    // pub latitude: f64,
+    // #[serde(skip)]
+    // pub longitude: f64,
+    // #[serde(skip)]
+    // pub altitude: f64
 }
 
 
-impl Default for RiderDataJSON 
+impl Default for RiderDataJSON
 {
-    fn default() -> Self 
+    fn default() -> Self
     {
-        Self 
+        Self
         {
             name: String::new(),
             country: String::new(),
@@ -100,20 +103,20 @@ impl Default for RiderDataJSON
 
             latitude: 0.0,
             longitude: 0.0,
-            altitude: 0.0   
+            altitude: 0.0
         }
     }
 }
 
-impl RiderDataJSON 
+impl RiderDataJSON
 {
-    pub fn from_json(json_str: &str) -> Result<Self, String> 
+    pub fn from_json(json_str: &str) -> Result<Self, String>
     {
         serde_json::from_str(json_str)
             .map_err(|e| format!("Failed to parse rider data JSON: {}", e))
     }
 
-    pub fn to_json(&self) -> Result<String, String> 
+    pub fn to_json(&self) -> Result<String, String>
     {
         serde_json::to_string_pretty(self)
             .map_err(|e| format!("Failed to serialize rider data to JSON: {}", e))
@@ -133,11 +136,11 @@ impl RiderDataJSON
     /// Get wind speed in km/h
     pub fn wind_speed_kmh(&self) -> f64 { self.wind_speed as f64 / 1000.0 * 3.6 }
 
-    pub fn wind_direction_degrees(&self) -> f64 
+    pub fn wind_direction_degrees(&self) -> f64
     //--------------------------------------------
     {
         let angle = self.wind_angle as f64;
-        if angle < 0.0 
+        if angle < 0.0
         {
             360.0 + angle
         } else {
@@ -152,14 +155,14 @@ pub fn parse_rider_json(json_str: &str) -> Result<RiderDataJSON, String> { Rider
 /// No Strings makes Copy possible for use in AtomicCell (and we're only dealing with one rider anyway so names needed).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct RiderData
-{    
+{
     pub distance: i32,
     pub wind_angle: i32,
     pub wind_speed: i32,
     pub slope: i32,
     pub height: i32,
     pub latitude: f64,
-    pub longitude: f64, 
+    pub longitude: f64,
     pub altitude: f64
 }
 
@@ -215,4 +218,4 @@ impl Default for RiderData
             altitude: 0.0,
         }
     }
-}   
+}

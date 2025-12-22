@@ -35,6 +35,7 @@ impl eframe::App for GPXAssistUI
                self.is_first_map_frame = true;
                // self.first_map_count = 3;
                self.is_first_street_frame = true;
+               self.is_first_gradient_frame = true;
                self.current_position = trackdata.first().copied(); //.map(|p| *p);
                self.previous_position = self.current_position;
                self.gpx_track = Arc::new(trackdata);
@@ -65,6 +66,7 @@ impl eframe::App for GPXAssistUI
                let mut gradient_length: f64;
                let mut gradient_offset: f64;
                let mut flat_gradient: f64;
+               let mut medium_gradient: f64;
                let mut extreme_gradient: f64;
                let mut vertical_exaggeration: f64;
                {
@@ -77,8 +79,11 @@ impl eframe::App for GPXAssistUI
                   if gradient_offset < 0.0 || gradient_offset >= gradient_length { gradient_offset = 100.0 }
                   self.gradient_length.store(gradient_length);
                   flat_gradient = settings_lock.flat_gradient_percentage;
-                  if flat_gradient < 0.0 || flat_gradient >= 5.0 { flat_gradient = 0.3; }
+                  if flat_gradient < 0.0 || flat_gradient >= 5.0 { flat_gradient = 1.0; }
                   self.gradient_flat.store(flat_gradient);
+                  medium_gradient = settings_lock.medium_gradient_percentage;
+                  if medium_gradient < 0.0 || medium_gradient >= 50.0 { medium_gradient = 8.0; }
+                  self.gradient_medium.store(medium_gradient);
                   extreme_gradient = settings_lock.extreme_gradient_percentage;
                   if extreme_gradient < 5.0 || extreme_gradient > 100.0 { extreme_gradient = 16.0; }
                   self.gradient_extreme.store(extreme_gradient);
@@ -97,6 +102,7 @@ impl eframe::App for GPXAssistUI
             }
          }
 
+         //Draw the top toolbar
          ui.horizontal(|ui|
          {
             if let Some((texture, size)) = self.textures.get("settings")
@@ -538,6 +544,7 @@ fn new_gradient_image(me: &mut GPXAssistUI, position: &TrackPoint, width: f32, h
    let total_distance = me.total_distance;
    let gradient_length = me.gradient_length.load();
    let flat_gradient = me.gradient_flat.load();
+   let medium_gradient = me.gradient_medium.load();
    let extreme_gradient = me.gradient_extreme.load();
    let gradient_offset = me.gradient_offset.load();
    let extreme_start = extreme_gradient.abs() - 1.5;
@@ -622,65 +629,25 @@ fn new_gradient_image(me: &mut GPXAssistUI, position: &TrackPoint, width: f32, h
          (vertical_dist / horizontal_dist) * 100.0
       };
 
-      // Get color based on gradient percentage
-      let gradient_color = |gradient_pct: f64| -> tiny_skia::Color
-      {
-         if gradient_pct < -flat_gradient.abs()
-         {
-            // Downhill: light blue to dark blue
-            // let t = ((gradient_pct - flat_gradient.abs()) / extreme_gradient.abs()).min(1.0);
-            let t = ((-flat_gradient.abs() - gradient_pct) / extreme_gradient.abs()).abs().min(1.0);
-            let b = (255.0) as u8;
-            let g = (216.0 * (1.0 - t)) as u8;
-            let r = (173.0 * (1.0 - t)) as u8;
-            // println!(" (downhill {} {} {})", r, g, b);
-            // tiny_skia::Color::from_rgba8(r, g, b, 255)
-            tiny_skia::Color::from_rgba8(b, g, r, 255)
-         } else if gradient_pct > flat_gradient.abs()
-         {
-            if gradient_pct >= extreme_gradient.abs()
-            {
-               tiny_skia::Color::from_rgba8(0, 0, 0, 255)
-            }
-            else
-            {
-               // Uphill: light yellow to red
-               let t = ((gradient_pct - flat_gradient.abs()) / extreme_gradient.abs()).min(1.0);
-               let b = if gradient_pct > extreme_start { 0 } else { 255 };
-               let g = ((255.0 * (1.0 - t)) as u8);
-               let r = ((150.0 * (1.0 - t)) as u8);
-               tiny_skia::Color::from_rgba8(r, g, b, 255)
-            }
-         }
-         else //flat
-         {
-            // tiny_skia::Color::from_rgba8(50, 200, 50, 255)
-            let t = ((flat_gradient.abs() - gradient_pct) / extreme_gradient.abs()).abs().min(1.0);
-            let b = 0;
-            let g = (255.0 * (1.0 - t)) as u8;
-            let r = 0;
-            // println!(" (downhill {} {} {})", r, g, b);
-            // tiny_skia::Color::from_rgba8(r, g, b, 255)
-            tiny_skia::Color::from_rgba8(b, g, r, 255)
-         }
-      };
-
-      // Draw filled areas and profile line
+      // let _ = std:: fs::remove_file("scripts/gpxdata.csv");
       for i in 0..me.gradient_points.len() - 1
       {
          let p1 = &me.gradient_points[i];
          let p2 = &me.gradient_points[i + 1];
 
          let gradient_pct = calculate_gradient_percent(p1, p2);
-         let color = gradient_color(gradient_pct);
-         // println!("{i}: {}, {} - {}, {} {gradient_pct}", p2.distance, p2.altitude, p1.distance, p1.altitude);
+         let color = color_from_gradient(gradient_pct, flat_gradient, medium_gradient, extreme_gradient, extreme_start);
+
+         // use std::fs::OpenOptions;
          // {
-         //    match OpenOptions::new().append(true).create(true).open("/tmp/gpxdata.txt")
+         //    match OpenOptions::new().append(true).create(true).open("scripts/gpxdata.csv")
          //    {
          //       | Ok(mut file) =>
          //       {
          //          use std::io::Write;
-         //          let log_line = format!("{},{},{},{},{:.2}\n", i, p1.distance, p1.altitude, p2.distance, gradient_pct);
+         //          let mut log_line = format!("{},{},{},{},{},{}\n", p1.distance, p1.altitude, color.red(), color.green(), color.blue(), gradient_pct);
+         //          let _ = file.write_all(log_line.as_bytes());
+         //          log_line = format!("{},{},{},{},{},{}\n", p2.distance, p2.altitude, color.red(), color.green(), color.blue(), gradient_pct);
          //          let _ = file.write_all(log_line.as_bytes());
          //       }
          //       | Err(e) =>
@@ -871,6 +838,7 @@ fn gradient_options(me: &mut GPXAssistUI, ui: &mut egui::Ui)
    let mut gradient_position: f64 = me.gradient_offset.load();
    let mut vertical_scale: f64 = me.vertical_scale.load();
    let mut flat_gradient: f64 = me.gradient_flat.load();
+   let mut medium_gradient: f64 = me.gradient_medium.load();
    let mut extreme_gradient: f64 = me.gradient_extreme.load();
    ui.horizontal(|ui|
    {
@@ -917,9 +885,9 @@ fn gradient_options(me: &mut GPXAssistUI, ui: &mut egui::Ui)
          me.gradient_offset.store(gradient_position);
          me.is_first_gradient_frame = true;
       }
-   });
-   ui.horizontal(|ui|
-   {
+
+      ui.separator();
+
       ui.label("Vertical Scale:");
       let scaling_response = ui.add_sized(
          egui::Vec2::new(100.0, 30.0),
@@ -933,8 +901,9 @@ fn gradient_options(me: &mut GPXAssistUI, ui: &mut egui::Ui)
          me.vertical_scale.store(vertical_scale);
          me.is_first_gradient_frame = true;
       }
-
-      ui.separator();
+   });
+   ui.horizontal(|ui|
+   {
       ui.label("Flat Gradient (%):");
       let flat_gradient_response = ui.add_sized(
          egui::Vec2::new(100.0, 30.0),
@@ -947,6 +916,22 @@ fn gradient_options(me: &mut GPXAssistUI, ui: &mut egui::Ui)
       if flat_gradient_response.dragged() || flat_gradient_response.changed()
       {
          me.gradient_flat.store(flat_gradient);
+         me.is_first_gradient_frame = true;
+      }
+
+      ui.label("Medium Gradient (%):");
+      let medium_gradient_response = ui.add_sized(
+         egui::Vec2::new(100.0, 30.0),
+         egui::DragValue::new(&mut medium_gradient)
+         .suffix("%")
+         .range(1.0..=16.0)
+         .speed(0.1)
+         .max_decimals(1))
+         .on_hover_text("The gradient considered to be 'medium'")
+         .on_hover_text("If flat to medium then gradient color is a shade of yellow; if medium to extreme then red.");
+      if medium_gradient_response.dragged() || medium_gradient_response.changed()
+      {
+         me.gradient_medium.store(medium_gradient);
          me.is_first_gradient_frame = true;
       }
 
@@ -1003,6 +988,61 @@ fn load_embedded_png(asset_name: &str) -> Result<ColorImage, String>
    let pixels = rgba.into_raw();
 
    Ok(ColorImage::from_rgba_unmultiplied(size, &pixels))
+}
+
+fn color_from_gradient(gradient_pct: f64, flat_gradient: f64, medium_gradient: f64, extreme_gradient: f64, extreme_start: f64) -> tiny_skia::Color
+//--------------------------------------------------------------------
+{
+   if gradient_pct < -flat_gradient.abs()
+   {
+      // Downhill: light blue to dark blue
+      // let t = ((gradient_pct - flat_gradient.abs()) / extreme_gradient.abs()).min(1.0);
+      let t = ((-flat_gradient.abs() - gradient_pct) / extreme_gradient.abs()).abs().min(1.0);
+      let b = (255.0) as u8;
+      let g = (216.0 * (1.0 - t)) as u8;
+      let r = (173.0 * (1.0 - t)) as u8;
+      // println!(" (downhill {}<{}:  {} {} {})",gradient_pct,-flat_gradient.abs(), r, g, b);
+      // tiny_skia::Color::from_rgba8(r, g, b, 255)
+      tiny_skia::Color::from_rgba8(b, g, r, 255)
+   } else if gradient_pct > flat_gradient.abs()
+   {
+      if gradient_pct >= extreme_gradient.abs()
+      {
+         // println!(" (extreme {}>={}:  {} {} {})",gradient_pct, extreme_gradient.abs(), 0.0, 0.0, 0.0);
+         tiny_skia::Color::from_rgba8(0, 0, 0, 255)
+      }
+      else if gradient_pct >= medium_gradient.abs()
+      {
+         //gradient of red
+         let t = ((gradient_pct - medium_gradient.abs()) / extreme_gradient.abs()).min(1.0);
+         let b = if gradient_pct > extreme_start { 0 } else { 8 };
+         let g = 0;
+         let r = (220.0*(1.0 - t)) as u8; //((255.0 * (1.0 - t)) as u8);
+         // println!(" (steep {}>={}:  {} {} {})",gradient_pct, medium_gradient.abs(), r, g, b);
+         tiny_skia::Color::from_rgba8(b, g, r, 255)
+      }
+      else
+      {
+         // Medium Uphill: shades of yellow
+         let t = ((gradient_pct - flat_gradient.abs()) / extreme_gradient.abs()).min(1.0);
+         let b =  0 as u8;
+         let g = ((155.0 * (1.0 - t)) as u8);
+         let r = ((255.0 - (33.0 * (1.0 - t))) as u8);
+         // println!(" (medium {} <= {} <= {}:  {} {} {})", flat_gradient.abs(), gradient_pct, medium_gradient.abs(), r, g, b);
+         tiny_skia::Color::from_rgba8(b, g, r, 255)
+      }
+   }
+   else //flat
+   {
+      // tiny_skia::Color::from_rgba8(50, 200, 50, 255)
+      let t = ((flat_gradient.abs() - gradient_pct) / extreme_gradient.abs()).abs().min(1.0);
+      let b = 0;
+      let g = (255.0 * (1.0 - t)) as u8;
+      let r = 0;
+      // println!(" (flat {} <= {} <= {}:  {} {} {})", -flat_gradient.abs(), gradient_pct, flat_gradient.abs(), r, g, b);
+      // tiny_skia::Color::from_rgba8(r, g, b, 255)
+      tiny_skia::Color::from_rgba8(b, g, r, 255)
+   }
 }
 
 fn display_invalid_broadcast_directory(ui: &mut egui::Ui, is_aged: bool, delta: f64)

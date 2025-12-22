@@ -22,6 +22,7 @@ pub struct Settings
    pub(crate) gradient_length: f64,
    pub(crate) gradient_offset: f64,
    pub(crate) flat_gradient_percentage: f64,
+   pub(crate) medium_gradient_percentage: f64,
    pub(crate) extreme_gradient_percentage: f64,
    pub(crate) vertical_exaggeration: f64,
    streetview_api_key: String,
@@ -32,6 +33,7 @@ pub struct Settings
    #[serde(skip)] temp_gradient_length:      f64,
    #[serde(skip)] temp_gradient_offset:      f64,
    #[serde(skip)] temp_flat_gradient:        f64,
+   #[serde(skip)] temp_medium_gradient:      f64,
    #[serde(skip)] temp_extreme_gradient:     f64,
    #[serde(skip)] temp_vertical_exaggeration: f64
 }
@@ -52,7 +54,8 @@ impl Default for Settings
          broadcast_directory: ui::get_broadcast_directory_or_default(),
          gradient_length: 3000.0,
          gradient_offset: 500.0,
-         flat_gradient_percentage: 0.5,
+         flat_gradient_percentage: 1.0,
+         medium_gradient_percentage: 8.0,
          extreme_gradient_percentage: 16.0,
          vertical_exaggeration: 10.0,
          streetview_api_key: String::new(),
@@ -63,6 +66,7 @@ impl Default for Settings
          temp_gradient_length: 3000.0,
          temp_gradient_offset: 500.0,
          temp_flat_gradient: 0.5,
+         temp_medium_gradient: 8.0,
          temp_extreme_gradient: 16.0,
          temp_vertical_exaggeration: 10.0
       }
@@ -446,6 +450,7 @@ impl Settings
       self.temp_gradient_length = self.gradient_length;
       self.temp_gradient_offset = self.gradient_offset;
       self.temp_flat_gradient = self.flat_gradient_percentage;
+      self.temp_medium_gradient = self.medium_gradient_percentage;
       self.temp_extreme_gradient = self.extreme_gradient_percentage;
       self.temp_vertical_exaggeration = self.vertical_exaggeration;
       self.show_api_key = false;
@@ -552,7 +557,7 @@ impl Settings
                      }
                      else
                      {
-                        Color32::WHITE
+                        Color32::DARK_BLUE
                      };
                      ui.style_mut().visuals.override_text_color = Some(text_color);
                      ui.add_sized( egui::Vec2::new(400.0, 30.0), egui::TextEdit::singleline(&mut dir_string).background_color(dir_color));
@@ -600,6 +605,17 @@ impl Settings
                      .speed(0.1)
                      .max_decimals(1))
                      .on_hover_text("The gradient considered to be 'flat', e.g if 0.5 then -0.5 to 0.5 is flat");
+                  ui.end_row();
+
+                  ui.label("Medium Gradient (%):");
+                  ui.add_sized(
+                     egui::Vec2::new(100.0, 30.0),
+                     egui::DragValue::new(&mut self.temp_medium_gradient)
+                     .range(2.0..=16.0)
+                     .speed(0.5)
+                     .max_decimals(1))
+                     .on_hover_text("The gradient considered to be 'medium'.")
+                     .on_hover_text("If flat to medium then gradient color is a shade of yellow; if medium to extreme then red.");
                   ui.end_row();
 
                   ui.label("Extreme Gradient (%):");
@@ -660,6 +676,7 @@ impl Settings
                   self.gradient_length = self.temp_gradient_length;
                   self.gradient_offset = self.temp_gradient_offset;
                   self.flat_gradient_percentage = self.temp_flat_gradient;
+                  self.medium_gradient_percentage = self.temp_extreme_gradient;
                   self.extreme_gradient_percentage = self.temp_extreme_gradient;
                   self.vertical_exaggeration = self.temp_vertical_exaggeration;
 
@@ -689,6 +706,7 @@ impl Settings
                   self.temp_gradient_length = 3000.0;
                   self.temp_gradient_offset = 500.0;
                   self.temp_flat_gradient = 0.5;
+                  self.temp_medium_gradient = 8.0;
                   self.temp_extreme_gradient = 16.0;
                   self.temp_vertical_exaggeration = 10.0;
                   self.show_api_key = false;
