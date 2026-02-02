@@ -1,8 +1,38 @@
 # GPXAssist
 
+## Description
+
+GPXAssist is an addon application for  [TrainingPeaks Virtual's](https://www.trainingpeaks.com/virtual/]) new [GPXplore](https://www.trainingpeaks.com/blog/gpxplorer-trainingpeaks-virtual/) functionality.  
+
+It provides:
+
+* In-ride map display with wind direction and speed arrows
+
+<img src="/img/50kmh-wind.png" alt="50Km/h wind" width="960" height="540">
+
+* Google Street View (requires Google API key - free tier has 10000 views per month),
+
+<img src="/img/streetview.png" alt="Street with cars" width="960" height="540">
+
+* and customizable gradient profile
+
+<img src="/img/gradient.png" alt="Gradient" width="896" height="716">
+
+
 ## Releases
 
 Releases: 
+- [v0.4 Third Release](https://github.com/donaldmunro/GPXAssist/releases/tag/V0.4)
+    - As TPV broadcast data now includes latitude and longitude, GPXAssist no longer needs to open a .gpx file to get position data, therefore there is no need to open a .gpx file for the Map and StreetView displays. The Gradient display still needs route elevation data, so the "Open" button is still needed when viewing the Gradient display, however the open button now supports both .gpx files and .fit files 
+    that have latitude/longitude/altitude for position data.
+    
+    - The Gradient display now also displays the distance to the next summit (highest point ahead in the gradient profile) if there is a summit ahead within the displayed gradient length that is not at the end of the gradient profile. A summit marker (diamond shape) is drawn at the summit location in the gradient profile. The distance to summit is shown on the top left of the gradient display (see image in Description
+    section).
+
+    - Gradient display is further split into flat, medium and extreme uphill gradients, with different colours for each.
+
+    - MacOs build is now included in the releases.
+
 - [v0.3 Second Release](https://github.com/donaldmunro/GPXAssist/releases/tag/V0.3)
     
     Main change is both a bug fix and a big improvement to the gradient profile display. 
@@ -22,24 +52,6 @@ Releases:
 Thanks to James Terrell we now have a [MacOS build](https://github.com/charlotteip/GPXAssist/blob/jterrell/macos-build/target/release/GPXAssist).
 
 Currently GPXAssist is only available for desktop, possibly a mobile version will be made in the future (or a WASM version that can run as a local server).
-
-## Description
-
-GPXAssist is an addon application for  [TrainingPeaks Virtual's](https://www.trainingpeaks.com/virtual/]) new [GPXplore](https://www.trainingpeaks.com/blog/gpxplorer-trainingpeaks-virtual/) functionality.  
-
-It provides:
-
-* In-ride map display with wind direction and speed arrows
-
-<img src="/img/50kmh-wind.png" alt="50Km/h wind" width="960" height="540">
-
-* Google Street View (requires Google API key - free tier has 10000 views per month),
-
-<img src="/img/streetview.png" alt="Street with cars" width="960" height="540">
-
-* and customizable gradient profile
-
-<img src="/img/gradient.png" alt="Gradient" width="960" height="540">
 
 ## Usage
 The application is distributed using single executable file which can download from the releases page (see links above), or built from source by cloning the repository or downloading the source code zip file, and then run cargo build --release in the source directory (after [installing Rust](https://rust-lang.org/tools/install/)).

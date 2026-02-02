@@ -14,7 +14,7 @@ pub mod ui;
 mod ut;
 pub mod data;
 
-use crate::{gpx::TrackPoint, ui::GPXAssistUI};
+use crate::{ ui::GPXAssistUI};
 use settings::Settings;
 
 

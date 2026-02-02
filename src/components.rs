@@ -1,5 +1,5 @@
-use eframe::egui::{self, Button, Response, Ui};
-use walkers::{HttpTiles, Map, MapMemory, Plugin, Position, Projector, lon_lat, sources::OpenStreetMap};
+use eframe::egui::{self};
+use walkers::{ MapMemory, Plugin, Position, Projector };
 use std::time::{Duration, Instant};
 
 /// Walkers Plugin that renders a directional arrow showing the heading based on movement
@@ -10,7 +10,7 @@ pub struct DirectionalArrow
 {
    pub(crate) current_position:  Position,
    pub(crate) heading: f64, // Heading in degrees (0-360)
-   pub(crate) wind_angle: i32, // Wind direction in degrees (0-360)
+   pub(crate) wind_angle: i64, // Wind direction in degrees (0-360)
    pub(crate) wind_speed: f64 // Wind speed in metres per second
 
 }
@@ -34,7 +34,8 @@ impl Plugin for DirectionalArrow
       // Draw the wind arrow if wind speed is significant
       if self.wind_speed.abs() > 0.5
       {
-         let wind_rad = (self.wind_angle as f64).to_radians();
+         let angle = (self.wind_angle + 180) % 360; // Wind direction is where it's coming from
+         let wind_rad = (angle as f64).to_radians();
          draw_wind_arrow(ui, screen_pos, wind_rad as f32, self.wind_speed as f32);
       }
    }
@@ -136,6 +137,7 @@ fn draw_wind_arrow(ui: &mut egui::Ui, position: egui::Pos2, wind_bearing: f32, w
 
 //-----------------------------------------------------------------------------------------------------------------------------------------------
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ToastLevel
 {
@@ -264,6 +266,7 @@ impl ToastManager
       self.add(toast);
    }
 
+   #[allow(dead_code)]
    pub fn warning(&mut self, message: impl Into<String>, duration: Option<Duration>)
    {
       let toast = Toast::new(message, ToastLevel::Warning);
@@ -284,6 +287,7 @@ impl ToastManager
       self.add(toast);
    }
 
+   #[allow(dead_code)]
    pub fn success(&mut self, message: impl Into<String>, duration: Option<Duration>)
    {
       let toast = Toast::new(message, ToastLevel::Success);
@@ -419,20 +423,4 @@ impl ToastManager
       // Request repaint to animate the progress bar
       ctx.request_repaint();
    }
-}
-
-fn toggle_button(ui: &mut Ui, text: &str, state: &mut bool) -> Response 
-//---------------------------------------------------------------------
-{
-   let mut button = Button::new(text);
-   if *state 
-   {
-      button = button.selected(true);
-   }
-   let response = ui.add(button);
-   if response.clicked() 
-   {
-      *state = !*state;
-   }
-   response
 }

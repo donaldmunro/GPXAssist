@@ -19,12 +19,21 @@ pub struct Settings
    last_directory: PathBuf,
    #[serde(default = "ui::get_broadcast_directory_or_default")]
    pub(crate) broadcast_directory: PathBuf,
+   #[serde(default = "Settings::default_gradient_length")]
    pub(crate) gradient_length: f64,
+   #[serde(default = "Settings::default_gradient_offset")]
    pub(crate) gradient_offset: f64,
+   #[serde(default = "Settings::default_gradient_delta")]
+   pub(crate) gradient_delta: f64,
+   #[serde(default = "Settings::default_flat_gradient_percentage")]
    pub(crate) flat_gradient_percentage: f64,
+   #[serde(default = "Settings::default_medium_gradient_percentage")]
    pub(crate) medium_gradient_percentage: f64,
+   #[serde(default = "Settings::default_extreme_gradient_percentage")]
    pub(crate) extreme_gradient_percentage: f64,
+   #[serde(default = "Settings::default_vertical_exaggeration")]
    pub(crate) vertical_exaggeration: f64,
+   #[serde(default)]
    streetview_api_key: String,
 
    #[serde(skip)] show_api_key:              bool,
@@ -35,7 +44,8 @@ pub struct Settings
    #[serde(skip)] temp_flat_gradient:        f64,
    #[serde(skip)] temp_medium_gradient:      f64,
    #[serde(skip)] temp_extreme_gradient:     f64,
-   #[serde(skip)] temp_vertical_exaggeration: f64
+   #[serde(skip)] temp_vertical_exaggeration: f64,
+   #[serde(skip)] temp_gradient_delta: f64
 }
 
 impl Default for Settings
@@ -54,6 +64,7 @@ impl Default for Settings
          broadcast_directory: ui::get_broadcast_directory_or_default(),
          gradient_length: 3000.0,
          gradient_offset: 500.0,
+         gradient_delta: 10.0,
          flat_gradient_percentage: 1.0,
          medium_gradient_percentage: 8.0,
          extreme_gradient_percentage: 16.0,
@@ -65,6 +76,7 @@ impl Default for Settings
          temp_broadcast_dir: PathBuf::new(),
          temp_gradient_length: 3000.0,
          temp_gradient_offset: 500.0,
+         temp_gradient_delta: 10.0,
          temp_flat_gradient: 0.5,
          temp_medium_gradient: 8.0,
          temp_extreme_gradient: 16.0,
@@ -76,55 +88,78 @@ impl Default for Settings
 impl Settings
 //===========
 {
+   fn default_gradient_length() -> f64
+   {
+      3000.0
+   }
+
+   fn default_gradient_offset() -> f64
+   {
+      500.0
+   }
+
+   fn default_gradient_delta() -> f64
+   {
+      10.0
+   }
+
+   fn default_flat_gradient_percentage() -> f64
+   {
+      1.0
+   }
+
+   fn default_medium_gradient_percentage() -> f64
+   {
+      8.0
+   }
+
+   fn default_extreme_gradient_percentage() -> f64
+   {
+      16.0
+   }
+
+   fn default_vertical_exaggeration() -> f64
+   {
+      10.0
+   }
+
    pub fn new() -> Self
    {
       Settings::default()
    }
 
    pub fn get_settings(&self) -> Result<Settings, String>
-   //-------------------------------------------
+//-------------------------------------------
    {
-      let _settings_dir = match self.get_settings_path()
+      let settings_path = match Settings::get_settings_path()
       {
-         Ok(pb) => pb,
-         Err(e) =>
+         | Ok(p) => p,
+         | Err(_e) => match Settings::write_default_settings()
          {
-            let errmsg = format!("Error getting settings path: {}", e);
-            eprintln!("{errmsg}");
-            return Err(errmsg);
-         }
-      };
-      let mut settings_path = match self.get_settings_path()
-      {
-         Ok(p) => p,
-         Err(_e) =>
-         {
-            match self.write_default_settings()
+            | Ok(pp) => pp,
+            | Err(e) =>
             {
-               Ok(pp) => pp,
-               Err(e) =>
-               {
-                  let errmsg = format!("Error creating default settings: {}", e);
-                  return Err(errmsg);
-               }
+               let errmsg = format!("Error on get settings: {}", e);
+               return Err(errmsg);
             }
-         }
+         },
       };
 
-      if ! settings_path.exists()
+      if !settings_path.exists()
       {
-         settings_path = match self.write_default_settings()
+         match Settings::write_default_settings()
          {
-            Ok(pp) => pp,
-            Err(e) =>
+            | Ok(_) => (),
+            | Err(e) =>
             {
                eprintln!("Error creating default settings: {}", e);
-               PathBuf::new()
+               // PathBuf::new()
             }
          };
       }
       Ok(self.read_settings())
    }
+
 
    pub fn get_settings_or_default(&self) -> Settings
    //-------------------------------------------
@@ -139,16 +174,41 @@ impl Settings
    pub(crate) fn write_settings(&self) -> Result<PathBuf, std::io::Error>
    //-----------------------------------------------------------------------
    {
-      let mut config_file = self.get_config_path()?;
-      config_file.push("settings.json");
-      let mut file = File::create(&config_file)?;
-      let json = serde_json::to_string(&self)?;
+      let settings_path = match Settings::get_settings_path()
+      {
+         | Ok(p) => p,
+         | Err(_) => match Settings::write_default_settings()
+         {
+            | Ok(pp) => pp,
+            | Err(e) =>
+            {
+               // println!("Error on get settings: {}", e);
+               return Err(e);
+            }
+         },
+      };
+      let mut file = File::create(&settings_path)?;
+      for retry in 0..3
+      {
+         match file.try_lock()
+         {
+            | Ok(_) => break,
+            | Err(e) =>
+            {
+               if retry == 2
+               {
+                  let errmsg = format!("Failed to lock settings file {}: {}", settings_path.display(), e);
+                  // println!("{errmsg}");
+                  return Err(std::io::Error::other(errmsg)); 
+               }
+               std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+         }
+      }
+      let json = serde_json::to_string_pretty(&self)?;
       file.write_all(json.as_bytes())?;
-      // let file = File::create(&config_file)?;
-      // let mut writer = BufWriter::new(file);
-      // serde_json::to_writer(&mut writer, &settings)?;
-      println!("Wrote settings {} to {}", json, config_file.display());
-      Ok(config_file)
+      // println!("Wrote settings {} to {}", json, settings_path.display());
+      Ok(settings_path)
    }
 
    pub fn get_streetview_api_key(&self) -> Result<String, String>
@@ -246,6 +306,7 @@ impl Settings
       }
    }
 
+   #[allow(dead_code)]
    pub fn set_last_directory(&mut self, path: &str) -> bool
    //-------------------------------------------
    {
@@ -289,6 +350,7 @@ impl Settings
       false
    }
 
+   #[allow(dead_code)]
    pub fn get_last_directory(&self) -> String
    //-------------------------------------------
    {
@@ -302,48 +364,81 @@ impl Settings
    }
 
 
-   /// Get OS specific path to the config directory for the program
-   pub fn get_config_path(&self) -> Result<PathBuf, std::io::Error>
+   
+   pub fn get_config_path() -> Result<PathBuf, std::io::Error>
    //-----------------------------------------------------------------------------------------
    {
-      match dirs::config_dir()
+      match dirs::config_dir() // cargo add dirs
       {
-         Some(p) =>
+         | Some(p) =>
          {
             let pp = p.join(PROGRAM);
-            if ! pp.exists()
+            if !pp.exists()
             {
                match std::fs::create_dir_all(pp.as_path())
                {
-                  Ok(_) => (),
-                  Err(e) =>
+                  | Ok(_) => (),
+                  | Err(e) =>
                   {
-                     return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create config directory {}: {}", pp.display(), e)));
+                     return Err(std::io::Error::other(format!("Failed to create config directory {}: {}",
+                                                            pp.display(), e)));
                   }
                }
             }
             Ok(pp)
-         },
-         None =>
+         }
+         | None =>
          {
             let mut config_path = Settings::get_home_dir();
 
             if env::consts::OS == "windows"
             {
-               config_path.push("Application Data/Local Settings/");
+               let mut pp = config_path.clone();
+               pp.push("AppData/Local");
+               if pp.is_dir()
+               {
+                  config_path.push("AppData/Local");
+               }
+               else
+               {
+                  pp.pop();
+                  pp.pop();
+                  pp.push("Local Settings/");
+                  if pp.is_dir()
+                  {
+                     config_path.push("Local Settings/");
+                  }
+                  else
+                  {
+                     config_path.push("Application Data/Local Settings/");
+                  }
+               }
             }
-            else if env::consts::OS == "macos" // No config dir ?
+         else if env::consts::OS == "macos"            
             {
-               //config_path.push("Library/Application Support/");
+               config_path.push(Settings::get_home_dir());
+               config_path.push(".config/");
+               if ! config_path.is_dir()
+               {
+                  config_path.pop();
+                  config_path.push("Library/");
+                  config_path.push("Application Support/");
+                  if ! config_path.is_dir()
+                  {
+                     config_path.pop();
+                     config_path.pop();
+                  }
+               }
             }
             else
             {
                config_path.push(".config/");
             }
             config_path.push(PROGRAM);
-            if config_path.exists() && ! config_path.is_dir()
+            if config_path.exists() && !config_path.is_dir()
             {
-               return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Config path {} exists and is not a directory", config_path.display())));
+               return Err(std::io::Error::other(format!("Config path {} exists and is not a directory",
+                                                      config_path.display())));
             }
             if !config_path.exists()
             {
@@ -354,15 +449,13 @@ impl Settings
       }
    }
 
-
-   /// Get the path to the settings file for the program.
-   pub fn get_settings_path(&self) -> Result<PathBuf, std::io::Error>
+   pub fn get_settings_path() -> Result<PathBuf, std::io::Error>
    //-------------------------------------------------------------------
    {
-      let mut config_path = match self.get_config_path()
+      let mut config_path = match Settings::get_config_path()
       {
-         Ok(p) => p,
-         Err(e) =>
+         | Ok(p) => p,
+         | Err(e) =>
          {
             eprintln!("Error getting settings path: {}", e);
             return Err(e);
@@ -372,14 +465,15 @@ impl Settings
       Ok(config_path)
    }
 
-   fn write_default_settings(&self) -> Result<PathBuf, std::io::Error>
-   //-----------------------------------------------------------------------
+
+   pub fn write_default_settings() -> Result<PathBuf, std::io::Error>
+//-----------------------------------------------------------------------
    {
       let settings = Settings::default();
-      let mut config_file = self.get_config_path()?;
+      let mut config_file = Settings::get_config_path()?;
       config_file.push("settings.json");
       let mut file = File::create(&config_file)?;
-      let json = serde_json::to_string(&settings)?;
+      let json = serde_json::to_string_pretty(&settings)?;
       file.write_all(json.as_bytes())?;
       // let file = File::create(&config_file)?;
       // let mut writer = BufWriter::new(file);
@@ -387,11 +481,10 @@ impl Settings
       Ok(config_file)
    }
 
-
    fn read_settings(&self) -> Settings
    //-----------------------------------------------------------------
    {
-      let mut config_file = match self.get_config_path()
+      let mut config_file = match Settings::get_config_path()
       {
          Ok(p) => p,
          Err(e) =>
@@ -449,6 +542,7 @@ impl Settings
       self.temp_broadcast_dir = self.broadcast_directory.clone();
       self.temp_gradient_length = self.gradient_length;
       self.temp_gradient_offset = self.gradient_offset;
+      self.temp_gradient_delta = self.gradient_delta;
       self.temp_flat_gradient = self.flat_gradient_percentage;
       self.temp_medium_gradient = self.medium_gradient_percentage;
       self.temp_extreme_gradient = self.extreme_gradient_percentage;
@@ -501,7 +595,7 @@ impl Settings
                   ui.end_row();
 
                   let mut dir_color = Color32::GREEN;
-                  let mut dir =
+                  let dir =
                   if self.temp_broadcast_dir.display().to_string().trim().is_empty()
                   {
                      dir_color = Color32::YELLOW;
@@ -597,6 +691,15 @@ impl Settings
                      .on_hover_text("The position within the gradient section where the rider currently is positioned (metres)");
                   ui.end_row();
 
+                  ui.label("Gradient Delta (m):");
+                  ui.add_sized(
+                     egui::Vec2::new(100.0, 30.0),
+                     egui::DragValue::new(&mut self.temp_gradient_delta)
+                     .range(1.0..=100.0)
+                     .speed(10.0))
+                     .on_hover_text(format!("The distance in metres to travel before redrawing the gradient display with rider positioned at {:.2} (metres)", self.temp_gradient_offset));
+                  ui.end_row();
+
                   ui.label("Flat Gradient (%):");
                   ui.add_sized(
                      egui::Vec2::new(100.0, 30.0),
@@ -675,6 +778,7 @@ impl Settings
                   // Update gradient settings
                   self.gradient_length = self.temp_gradient_length;
                   self.gradient_offset = self.temp_gradient_offset;
+                  self.gradient_delta = self.temp_gradient_delta;
                   self.flat_gradient_percentage = self.temp_flat_gradient;
                   self.medium_gradient_percentage = self.temp_extreme_gradient;
                   self.extreme_gradient_percentage = self.temp_extreme_gradient;
@@ -705,6 +809,7 @@ impl Settings
                   self.temp_api_key.clear();
                   self.temp_gradient_length = 3000.0;
                   self.temp_gradient_offset = 500.0;
+                  self.temp_gradient_delta = 10.0;
                   self.temp_flat_gradient = 0.5;
                   self.temp_medium_gradient = 8.0;
                   self.temp_extreme_gradient = 16.0;
@@ -744,6 +849,7 @@ impl Settings
       }
    }
 
+   #[allow(dead_code)]
    pub fn get_home_dir_string() -> String
    //-------------------------------
    {
